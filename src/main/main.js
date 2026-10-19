@@ -513,7 +513,13 @@ downloader.onUpdate((job) => broadcast('download:update', job));
 
 app.whenReady().then(() => {
   app.setAppUserModelId('com.moli.molidowloader');
-  settings.setBase(defaultDownloads());
+  let documentsDir = '';
+  try {
+    documentsDir = app.getPath('documents');
+  } catch {
+    documentsDir = '';
+  }
+  settings.setBase(defaultDownloads(), documentsDir);
   settings.ensureAll();
   registerIpc();
   createWindow();

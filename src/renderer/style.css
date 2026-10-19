@@ -1562,16 +1562,6 @@ body.dragging .source-card {
 /* =========================================
    COPYRIGHT + INFO
    ========================================= */
-.copyright {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text2);
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-  margin-left: 16px;
-  user-select: none;
-}
 .info-view { background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.03), transparent 55%); }
 .info-view .left { padding-bottom: 64px; }
 .info-view .right { gap: 16px; }

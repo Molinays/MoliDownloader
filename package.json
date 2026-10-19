@@ -1,6 +1,6 @@
 {
   "name": "molidowloader",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Downloader universale (YouTube, TikTok, Instagram e altri) + editor video/audio e compressore GPU FFmpeg",
   "main": "src/main/main.js",
   "author": "Molinays",

@@ -1,4 +1,4 @@
-# MoliDowloader 3.0.0
+# MoliDowloader 3.0.1
 
 App desktop **Electron** che unisce un downloader universale, un piccolo editor video/audio e un compressore in stile HandBrake, tutti basati su **FFmpeg**.
 
@@ -14,7 +14,7 @@ App desktop **Electron** che unisce un downloader universale, un piccolo editor 
 - Audio: MP3, M4A, Opus, FLAC, WAV con bitrate selezionabile.
 - Playlist, sottotitoli, embed cover/metadata, SponsorBlock, geo-bypass, proxy, rate limit, retry, frammenti paralleli.
 - Cookie da Chrome/Firefox/Edge/Brave/Opera per contenuti che richiedono login (Instagram, TikTok privati, ecc.).
-- Link dei siti con player protetto (StreamingCommunity e mirror): il resolver trova da solo il flusso VixCloud della pagina, con token ed expires, e lo passa a yt-dlp. Accetta anche il link del player o della playlist incollato direttamente.
+- Link dei siti con player protetto (StreamingCommunity e mirror): il resolver legge la pagina del sito, segue l'iframe fino al player VixCloud e recupera la playlist HLS con token ed expires, poi la passa a yt-dlp. Accetta anche il link del player o della playlist incollato direttamente. Se il sito rifiuta le richieste dirette, il player viene caricato in una finestra Electron nascosta (JavaScript e cookie veri) e il flusso viene letto da lì.
 - Log in tempo reale, annullamento, apertura cartella e passaggio diretto all'editor.
 - Aggiornamento di yt-dlp integrato nell'app.
 
@@ -56,7 +56,7 @@ App desktop **Electron** che unisce un downloader universale, un piccolo editor 
 - GPU rilevate con VRAM e driver, più l'esito reale dei test NVENC, Quick Sync, AMF e VideoToolbox.
 - Settings consigliati per questa macchina (encoder, qualità, preset, risoluzione) applicabili in un clic nella scheda Comprimi.
 - Controllo dipendenze: yt-dlp, FFmpeg e ffprobe con versione, percorso e origine. Se mancano (o per aggiornarle) si scaricano direttamente da GitHub e vengono salvate in `%APPDATA%/molidowloader/bin` con i nomi usati dall'app (`ytd.exe`, `ffmpeg.exe`, `ffprobe.exe`).
-- Cartelle di output separate e modificabili per Download, Compressioni e Montaggi, con ripristino della predefinita in un clic.
+- Cartelle di output separate e modificabili: download e compressioni in `Download/MoliDowloader`, montaggi esportati in `Documenti/MoliDowloader`, con ripristino della predefinita in un clic.
 
 ## Requisiti
 

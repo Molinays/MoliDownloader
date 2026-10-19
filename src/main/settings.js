@@ -17,23 +17,32 @@ const SUBFOLDERS = {
   compressDir: 'Compressioni',
   editorDir: 'Montaggi',
 };
+// Download e compressioni in Download, i montaggi esportati in Documenti.
+const SUBFOLDER_BASE = {
+  downloadsDir: 'downloads',
+  compressDir: 'downloads',
+  editorDir: 'documents',
+};
 const KEYS = Object.keys(SUBFOLDERS);
 
-let baseDir = '';
+const bases = { downloads: '', documents: '' };
 let stored = null;
 
-function setBase(directory) {
-  try {
-    baseDir = directory ? path.resolve(directory) : '';
-  } catch {
-    baseDir = '';
+function setBase(downloadsDir, documentsDir) {
+  for (const [key, value] of [['downloads', downloadsDir], ['documents', documentsDir]]) {
+    try {
+      bases[key] = value ? path.resolve(value) : '';
+    } catch {
+      bases[key] = '';
+    }
   }
 }
 
 function defaults() {
   const result = {};
   for (const key of KEYS) {
-    result[key] = baseDir ? path.join(baseDir, APP_FOLDER, SUBFOLDERS[key]) : '';
+    const base = bases[SUBFOLDER_BASE[key]];
+    result[key] = base ? path.join(base, APP_FOLDER, SUBFOLDERS[key]) : '';
   }
   return result;
 }

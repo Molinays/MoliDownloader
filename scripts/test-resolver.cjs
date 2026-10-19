@@ -3,50 +3,47 @@
 
 /**
  * Test offline del resolver: nessuna rete, pagine di esempio con la stessa
- * struttura dei player reali (iframe annidati, window.streams, token/expires).
+ * struttura dei player reali (embedUrl nello stato della pagina, iframe del
+ * sito, window.streams e window.masterPlaylist con token ed expires).
  */
 
 const assert = require('assert');
 const resolver = require('../src/main/resolver');
 
-const TOKEN = 'cb708d6f416b0e673718daab4c41bcfe';
-const EXPIRES = '1797552804';
-const STREAM = `https://cdn.vixcloud.co/hls/305264/master.m3u8?token=${TOKEN}&expires=${EXPIRES}`;
-const PLAYLIST = `https://vixcloud.co/playlist/305264?h=1&scz=1&lang=it&token=${TOKEN}&expires=${EXPIRES}`;
+const TOKEN = 'e8994211477b27eaddaffc998e7471f6';
+const EXPIRES = '1797558507';
+const STREAM = `https://cdn.vixcloud.co/hls/305266/master.m3u8?token=${TOKEN}&expires=${EXPIRES}`;
+// base + parametri dell'embed + flag del server attivo + token/expires del player
+const PLAYLIST =
+  `https://vixcloud.co/playlist/305266?h=1&scz=1&lang=it&ub=1&token=${TOKEN}&expires=${EXPIRES}`;
 
 const WATCH_HTML = `<!doctype html><html><head>
-<title>Episodio 1 - La serie - StreamingCommunity</title></head>
-<body><h1>Episodio 1 - La serie</h1>
-<div id="player"><iframe src="/it/iframe/104?episode_id=3197&amp;next_episode=1"></iframe></div>
+<title>Episodio 19 - La serie - StreamingCommunity</title></head>
+<body><h1>Episodio 19 - La serie</h1>
+<script>window.__data = {"props":{"embedUrl":"https:\\/\\/streamingcommunityz.shiksha\\/it\\/iframe\\/104?episode_id=3199&amp;next_episode=1"},"scws_url":"https:\\/\\/vixcloud.co"};</script>
+<script src="https://analytics.vixcloud.co/js/script.js" data-domain="streamingcommunity.to"></script>
 </body></html>`;
 
-const IFRAME_HTML = `<!doctype html><html><body>
-<iframe src="https://vixcloud.co/embed/305264?h=1&amp;scz=1&amp;lang=it"></iframe>
+const SITE_IFRAME_HTML = `<!doctype html><html><body>
+<iframe ref="iframe" src="https://vixcloud.co/embed/305266?token=c63f4d4225f9687625e902daf0677747&amp;referer=1&amp;expires=1792374737&amp;lang=it&amp;h=1&amp;scz=1" frameborder="0"></iframe>
 </body></html>`;
 
-const DIRECT_WATCH_HTML = `<!doctype html><html><head>
-<title>Episodio 1 - La serie - StreamingCommunity</title></head>
-<body><h1>Episodio 1 - La serie</h1>
-<iframe src="https://vixcloud.co/embed/305264?h=1&amp;scz=1&amp;lang=it"></iframe>
-</body></html>`;
-
-// Il player reale dichiara i server in window.streams e token/expires in window.masterPlaylist.
 const EMBED_HTML = `<html><head><title>VixCloud</title></head><body>
 <script>
-window.masterPlaylist = {"params":{'token':'${TOKEN}','expires':'${EXPIRES}'}};
-window.streams = [{"name":"VixCloud","url":"https:\\/\\/vixcloud.co\\/playlist\\/305264?h=1&scz=1&lang=it","active":true}];
+window.video = { id: '305266', filename: '', timestamps: [], };
+window.streams = [{"name":"Server1","active":true,"url":"https:\\/\\/vixcloud.co\\/playlist\\/305266?ub=1"},{"name":"Server2","active":false,"url":"https:\\/\\/vixcloud.co\\/playlist\\/305266?ab=1"}];
+window.masterPlaylist = { params: { 'token': '${TOKEN}', 'expires': '${EXPIRES}', 'asn': '', }, url: 'https://vixcloud.co/playlist/305266', }
+window.canPlayFHD = true
 </script>
 </body></html>`;
 
-const PLAYLIST_JSON = JSON.stringify({ id: 305264, src: STREAM });
-
+const PLAYLIST_JSON = JSON.stringify({ id: 305266, src: STREAM });
 const M3U8 = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080\n1080/index.m3u8\n';
 
 function bodyFor(url) {
   const called = String(url);
-  if (called.includes('streamingcommunity.best')) return DIRECT_WATCH_HTML;
   if (called.includes('/it/watch/')) return WATCH_HTML;
-  if (called.includes('/it/iframe/')) return IFRAME_HTML;
+  if (called.includes('/it/iframe/')) return SITE_IFRAME_HTML;
   if (called.includes('/embed/')) return EMBED_HTML;
   if (called.includes('/playlist/')) return PLAYLIST_JSON;
   if (called.includes('.m3u8')) return M3U8;
@@ -78,29 +75,22 @@ function fakeFetch(calls) {
 
 const scenarios = [
   {
-    name: 'link del sito con iframe annidati fino al player',
-    url: 'https://streamingcommunityz.shiksha/it/watch/104?e=3197',
+    name: 'link del sito: embedUrl nello stato, iframe del sito e player',
+    url: 'https://streamingcommunityz.shiksha/it/watch/104?e=3199',
     expect: STREAM,
     calls: ['watch', 'iframe', 'embed', 'playlist'],
-    title: 'Episodio 1 - La serie',
+    title: 'Episodio 19 - La serie',
   },
   {
-    name: 'pagina del sito con player VixCloud diretto',
-    url: 'https://streamingcommunity.best/it/watch/104?e=3197',
-    expect: STREAM,
-    calls: ['watch', 'embed', 'playlist'],
-    title: 'Episodio 1 - La serie',
-  },
-  {
-    name: 'link di embed incollato direttamente',
-    url: 'https://vixcloud.co/embed/305264?h=1&scz=1&lang=it',
+    name: 'link del player incollato direttamente',
+    url: 'https://vixcloud.co/embed/305266?h=1&scz=1&lang=it',
     expect: STREAM,
     calls: ['embed', 'playlist'],
     title: 'VixCloud',
   },
   {
     name: 'link della playlist con token ed expires',
-    url: `https://vixcloud.co/playlist/305264?token=${TOKEN}&expires=${EXPIRES}&h=1&scz=1&lang=it`,
+    url: `https://vixcloud.co/playlist/305266?token=${TOKEN}&expires=${EXPIRES}&h=1&scz=1&lang=it`,
     expect: STREAM,
     calls: ['playlist'],
     title: '',
@@ -126,18 +116,46 @@ async function run() {
       console.log(`ok - ${scenario.name}`);
     }
 
-    // Il player espone solo il percorso della playlist: token ed expires vanno aggiunti.
+    // Lo stato della pagina viene letto anche con virgolette e slash escapati.
     assert.strictEqual(
-      resolver.extractPlaylist(EMBED_HTML, 'https://vixcloud.co/embed/305264?h=1&scz=1&lang=it'),
+      resolver.extractEmbedUrl(WATCH_HTML, 'https://streamingcommunityz.shiksha/it/watch/104?e=3199'),
+      'https://streamingcommunityz.shiksha/it/iframe/104?episode_id=3199&next_episode=1',
+      'embedUrl non estratto',
+    );
+    console.log('ok - embedUrl letto dallo stato escapato');
+    passed += 1;
+
+    // Le risorse del dominio del player (analytics, script) non sono candidati.
+    const candidates = resolver.playerCandidates(WATCH_HTML, 'https://streamingcommunityz.shiksha/it/watch/104');
+    assert.ok(
+      candidates.every((url) => !/analytics\.vixcloud\.co/i.test(url)),
+      'risorsa analytics considerata un player',
+    );
+    assert.ok(candidates[0].includes('/it/iframe/'), 'il player indicato dalla pagina non è il primo candidato');
+    console.log('ok - script e analytics scartati dai candidati');
+    passed += 1;
+
+    // Playlist composta da window.masterPlaylist + window.streams.
+    assert.strictEqual(
+      resolver.extractPlaylist(EMBED_HTML, 'https://vixcloud.co/embed/305266?h=1&scz=1&lang=it'),
       PLAYLIST,
       'composizione della playlist errata',
     );
-    console.log('ok - token ed expires uniti al percorso della playlist');
+    console.log('ok - playlist composta da masterPlaylist, streams e parametri dell\'embed');
+    passed += 1;
+
+    // Il titolo del sito ("Watch ...") viene ripulito per il nome del file.
+    assert.strictEqual(
+      resolver.titleFromHtml('<title>Watch The Vampire Diaries S1:E19</title>'),
+      'The Vampire Diaries S1:E19',
+      'prefisso Watch non rimosso dal titolo',
+    );
+    console.log('ok - titolo ripulito per il nome del file');
     passed += 1;
 
     // Riconoscimento dei link gestiti dal resolver.
-    assert.ok(resolver.isSupported('https://streamingcommunityz.shiksha/it/watch/104?e=3197'));
-    assert.ok(resolver.isSupported('https://vixcloud.co/embed/305264'));
+    assert.ok(resolver.isSupported('https://streamingcommunityz.shiksha/it/watch/104?e=3199'));
+    assert.ok(resolver.isSupported('https://vixcloud.co/embed/305266'));
     assert.ok(!resolver.isSupported('https://www.youtube.com/watch?v=abc'));
     console.log('ok - riconoscimento dei link gestiti');
     passed += 1;
@@ -152,29 +170,29 @@ async function run() {
     });
     await assert.rejects(
       () => resolver.resolve('https://streamingcommunityz.shiksha/it/watch/1'),
-      /Nessun player trovato/,
+      /Nessun player trovato|Richiesta diretta rifiutata/,
       'pagina senza player non segnalata',
     );
     console.log('ok - pagina senza player gestita');
     passed += 1;
 
     // Player senza configurazione: link scaduto o pagina cambiata.
-    global.fetch = async () => ({
+    global.fetch = async (url) => ({
       ok: true,
       status: 200,
       statusText: 'OK',
-      url: 'https://vixcloud.co/embed/1',
+      url: String(url),
       text: async () => '<html><body><script>window.streams = [];</script></body></html>',
     });
     await assert.rejects(
       () => resolver.resolve('https://vixcloud.co/embed/1'),
-      /Playlist non trovata/,
+      /Playlist non trovata|Richiesta diretta rifiutata/,
       'player senza playlist non segnalato',
     );
     console.log('ok - player senza playlist gestito');
     passed += 1;
 
-    // Errori HTTP esposti all'utente.
+    // Errori HTTP esposti all'utente (senza Electron si ferma al percorso diretto).
     global.fetch = async () => ({ ok: false, status: 404, statusText: 'Not Found', url: 'x', text: async () => '' });
     await assert.rejects(
       () => resolver.resolve('https://vixcloud.co/embed/1'),
