@@ -18,6 +18,8 @@ Vai alla pagina dell'ultima versione:
 ## Funzioni principali
 
 - Download video fino a 4K e audio in MP3, M4A, Opus, FLAC e WAV, con playlist, sottotitoli, cookie, proxy e SponsorBlock.
+- Link con player protetto: le pagine dei siti che non espongono il file (es. StreamingCommunity e mirror) vengono risolte automaticamente fino al flusso scaricabile, senza dover copiare a mano l'indirizzo del player.
+- Cartelle separate e modificabili per download, compressioni e montaggi, con ripristino della predefinita in un clic.
 - Editor: taglio, riordino, velocità, volume e fade per clip, traccia musicale, export MP4/MKV/M4A.
 - Compressione in stile HandBrake: x264, x265, VP9, AV1 e encoder GPU NVENC, Quick Sync, AMF e VideoToolbox, con merge delle tracce audio e conversione sottotitoli.
 - Scheda Info con sistema, GPU rilevate, test reali degli encoder e suggerimenti automatici.
@@ -37,7 +39,8 @@ La versione installata con l'installer controlla le release di questo repository
 - Scarica l'app solo da questa pagina ufficiale.
 - Usa il programma per contenuti di cui hai i diritti o che la piattaforma consente di scaricare.
 - Gli installer non sono firmati con un certificato commerciale: Windows SmartScreen può mostrare un avviso al primo avvio.
+- L'applicazione include componenti di terze parti con licenze proprie: yt-dlp (Unlicense), FFmpeg e ffprobe (GPL/LGPL secondo la build distribuita), Electron e le librerie npm incluse.
 
 ---
 
-Copyright © 2026 **Molinays**. Tutti i diritti riservati.
+Copyright © 2026 **Molinays**. Il codice del progetto è distribuito con licenza [MIT](LICENSE).
