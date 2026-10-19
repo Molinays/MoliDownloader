@@ -1098,7 +1098,7 @@ function compressVideo({ ffmpegPath, ffprobePath, sourcePath, options, outputPat
           ...plan.seekArgs,
           '-i',
           sourcePath,
-          ...plan.trimArgs,
+          ...plan.afterInputArgs,
           '-progress',
           'pipe:1',
           '-stats_period',
