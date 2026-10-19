@@ -1,4 +1,4 @@
-/* MoliDowloader — Copyright © 2026 Molinays. Tutti i diritti riservati. */
+/* MoliDowloader — Copyright © 2026 Molinays · SPDX-License-Identifier: MIT */
 'use strict';
 
 const fs = require('fs');
@@ -18,6 +18,7 @@ const downloader = require('./downloader');
 const editor = require('./editor');
 const hardware = require('./hardware');
 const compressCore = require('./compress-core');
+const settings = require('./settings');
 const updater = require('./updater');
 
 let mainWindow = null;
@@ -135,9 +136,12 @@ function shellReveal(target) {
 function registerIpc() {
   ipcMain.handle('app:defaults', () => {
     const tools = binaries.getBinaries();
+    const saved = settings.get();
     return {
-      downloads: defaultDownloads(),
-      outputDir: defaultDownloads(),
+      downloads: saved.downloadsDir || defaultDownloads(),
+      outputDir: saved.downloadsDir || defaultDownloads(),
+      settings: saved,
+      folders: settings.defaults(),
       appVersion: app.getVersion(),
       platform: process.platform,
       userBinDir: tools.userBinDir,
@@ -148,6 +152,10 @@ function registerIpc() {
       },
     };
   });
+
+  ipcMain.handle('settings:get', () => settings.get());
+
+  ipcMain.handle('settings:set', (_event, patch) => settings.set(patch));
 
   ipcMain.handle('dialog:pickFolder', async (event, current) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -221,7 +229,10 @@ function registerIpc() {
       .replace(/\.[a-z0-9]{2,5}$/i, '');
     const result = await dialog.showSaveDialog(win, {
       title: 'Salva il video compresso',
-      defaultPath: path.join(defaultDownloads(), `${base}-compresso.${extension}`),
+      defaultPath: path.join(
+        settings.ensure('compressDir') || defaultDownloads(),
+        `${base}-compresso.${extension}`,
+      ),
       filters: [
         container === 'mkv'
           ? { name: 'Video MKV', extensions: ['mkv'] }
@@ -276,7 +287,10 @@ function registerIpc() {
       const win = BrowserWindow.fromWebContents(event.sender);
       const result = await dialog.showSaveDialog(win, {
         title: 'Esporta montaggio',
-        defaultPath: path.join(defaultDownloads(), `${sanitizeName(project.name)}.${extension}`),
+        defaultPath: path.join(
+          settings.ensure('editorDir') || defaultDownloads(),
+          `${sanitizeName(project.name)}.${extension}`,
+        ),
         filters: [
           format === 'mp4'
             ? { name: 'Video MP4', extensions: ['mp4'] }
@@ -365,7 +379,10 @@ function registerIpc() {
       const base = sanitizeName(path.basename(sourcePath)).replace(/\.[a-z0-9]{2,5}$/i, '');
       const result = await dialog.showSaveDialog(win, {
         title: 'Salva il video compresso',
-        defaultPath: path.join(defaultDownloads(), `${base}-compresso.${extension}`),
+        defaultPath: path.join(
+          settings.get().compressDir || defaultDownloads(),
+          `${base}-compresso.${extension}`,
+        ),
         filters: [
           container === 'mkv'
             ? { name: 'Video MKV', extensions: ['mkv'] }
@@ -496,6 +513,8 @@ downloader.onUpdate((job) => broadcast('download:update', job));
 
 app.whenReady().then(() => {
   app.setAppUserModelId('com.moli.molidowloader');
+  settings.setBase(defaultDownloads());
+  settings.ensureAll();
   registerIpc();
   createWindow();
   updater.start(broadcast);

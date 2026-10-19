@@ -1,3 +1,4 @@
+/* MoliDowloader — Copyright © 2026 Molinays · SPDX-License-Identifier: MIT */
 'use strict';
 
 const fs = require('fs');

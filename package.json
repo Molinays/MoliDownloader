@@ -1,10 +1,10 @@
 {
   "name": "molidowloader",
-  "version": "2.3.1",
+  "version": "3.0.0",
   "description": "Downloader universale (YouTube, TikTok, Instagram e altri) + editor video/audio e compressore GPU FFmpeg",
   "main": "src/main/main.js",
   "author": "Molinays",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "copyright": "Copyright © 2026 Molinays",
   "repository": {
     "type": "git",
@@ -14,6 +14,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
+    "test": "node scripts/test-resolver.cjs",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --win",
     "publish": "electron-builder --win --publish always"

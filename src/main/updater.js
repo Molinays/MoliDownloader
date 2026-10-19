@@ -1,4 +1,4 @@
-/* MoliDowloader — Copyright © 2026 Molinays. Tutti i diritti riservati. */
+/* MoliDowloader — Copyright © 2026 Molinays · SPDX-License-Identifier: MIT */
 'use strict';
 
 const { app } = require('electron');

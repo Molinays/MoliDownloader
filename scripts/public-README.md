@@ -40,4 +40,4 @@ La versione installata con l'installer controlla le release di questo repository
 
 ---
 
-Copyright © 2026 **Molinays**. Tutti i diritti riservati.
+Copyright © 2026 **Molinays**. Distribuito con licenza [MIT](https://github.com/Molinays/MoliDownloader/releases/latest).

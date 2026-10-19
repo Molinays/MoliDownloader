@@ -1,8 +1,8 @@
-# MoliDowloader 2.3.1
+# MoliDowloader 3.0.0
 
 App desktop **Electron** che unisce un downloader universale, un piccolo editor video/audio e un compressore in stile HandBrake, tutti basati su **FFmpeg**.
 
-> Copyright © 2026 **Molinays** — tutti i diritti riservati (vedi [LICENSE](LICENSE)). Il repository pubblico distribuisce **solo gli eseguibili**.
+> Copyright © 2026 **Molinays** — distribuito con [licenza MIT](LICENSE). Il repository pubblico distribuisce **solo gli eseguibili**.
 
 ## Funzioni
 
@@ -14,6 +14,7 @@ App desktop **Electron** che unisce un downloader universale, un piccolo editor 
 - Audio: MP3, M4A, Opus, FLAC, WAV con bitrate selezionabile.
 - Playlist, sottotitoli, embed cover/metadata, SponsorBlock, geo-bypass, proxy, rate limit, retry, frammenti paralleli.
 - Cookie da Chrome/Firefox/Edge/Brave/Opera per contenuti che richiedono login (Instagram, TikTok privati, ecc.).
+- Link dei siti con player protetto (StreamingCommunity e mirror): il resolver trova da solo il flusso VixCloud della pagina, con token ed expires, e lo passa a yt-dlp. Accetta anche il link del player o della playlist incollato direttamente.
 - Log in tempo reale, annullamento, apertura cartella e passaggio diretto all'editor.
 - Aggiornamento di yt-dlp integrato nell'app.
 
@@ -55,6 +56,7 @@ App desktop **Electron** che unisce un downloader universale, un piccolo editor 
 - GPU rilevate con VRAM e driver, più l'esito reale dei test NVENC, Quick Sync, AMF e VideoToolbox.
 - Settings consigliati per questa macchina (encoder, qualità, preset, risoluzione) applicabili in un clic nella scheda Comprimi.
 - Controllo dipendenze: yt-dlp, FFmpeg e ffprobe con versione, percorso e origine. Se mancano (o per aggiornarle) si scaricano direttamente da GitHub e vengono salvate in `%APPDATA%/molidowloader/bin` con i nomi usati dall'app (`ytd.exe`, `ffmpeg.exe`, `ffprobe.exe`).
+- Cartelle di output separate e modificabili per Download, Compressioni e Montaggi, con ripristino della predefinita in un clic.
 
 ## Requisiti
 
@@ -69,6 +71,12 @@ App desktop **Electron** che unisce un downloader universale, un piccolo editor 
 ```bash
 npm install
 npm start
+```
+
+I test offline del resolver (nessuna rete) si eseguono con:
+
+```bash
+npm test
 ```
 
 Su Windows è sufficiente anche il doppio clic su **start.bat**: installa le dipendenze al primo avvio e apre l'app.
@@ -106,6 +114,7 @@ Il repository GitHub pubblico è **release-only**: sul branch `main` c'è solo i
 src/
   main/        processo principale Electron (finestra, IPC, download, editor, compressione)
   renderer/    interfaccia (index.html, app.js, style.css)
+scripts/       utility e test offline (npm test)
 resources/     binari inclusi nel pacchetto (ytd.exe)
 build/         icona dell'applicazione
 release/       artefatti di build (ignorata da git)
@@ -117,6 +126,8 @@ release/       artefatti di build (ignorata da git)
 | `src/main/main.js` | Finestra, sicurezza e handler IPC |
 | `src/main/preload.js` | Bridge `contextBridge` usato dal renderer |
 | `src/main/downloader.js` | Coda yt-dlp, parsing progresso, file finali e annullamento |
+| `src/main/resolver.js` | Risoluzione dei link con player protetto (StreamingCommunity, VixCloud) verso la playlist scaricabile |
+| `src/main/settings.js` | Cartelle di output predefinite, personalizzate dall'utente e ripristinabili |
 | `src/main/media-core.js` | Probe, thumbnail, waveform, costruzione filtri ed export FFmpeg |
 | `src/main/editor.js` | Cache media e servizio export per Electron |
 | `src/main/compress-core.js` | Probe tracce, piano di compressione, merge audio, 2-pass, progresso e annullamento |
@@ -124,7 +135,7 @@ release/       artefatti di build (ignorata da git)
 | `src/main/binaries.js` | Ricerca di yt-dlp/FFmpeg/ffprobe, link dei tool e self-update |
 | `src/main/updater.js` | Controllo release GitHub, download e installazione aggiornamenti |
 | `resources/ytd.exe` | yt-dlp incluso nel pacchetto |
-| `LICENSE` | Copyright © 2026 Molinays — tutti i diritti riservati (software proprietario) |
+| `LICENSE` | Licenza MIT — Copyright © 2026 Molinays |
 
 ## Note
 
@@ -135,10 +146,10 @@ release/       artefatti di build (ignorata da git)
 - Nella sezione Comprimi il 2-pass è disponibile solo per x264/x265; gli encoder hardware privilegiano velocità e non lo supportano.
 - Il burn-in dei sottotitoli nel video non è previsto: le tracce vengono mantenute o convertite nel contenitore scelto.
 - La decodifica GPU è pensata per NVENC (percorso CUDA). Con Quick Sync, AMF o VideoToolbox viene usato `-hwaccel auto` e resta il fallback software automatico.
-- I link gestiti sono quelli supportati da yt-dlp: l'app non aggira protezioni o paywall di siti non supportati.
+- I link gestiti sono quelli supportati da yt-dlp. Per i siti con player dedicato il resolver legge la pagina pubblica del player e ne estrae il flusso HLS con i parametri che il player stesso espone: non decifra DRM né aggira abbonamenti.
 - L'auto-update è supportato dalla versione installata con NSIS. Il portable non può sostituirsi da solo: va scaricato manualmente dalla release.
 - Gli aggiornamenti Windows non sono firmati con un certificato commerciale: SmartScreen può mostrare un avviso al primo avvio.
 
 ---
 
-Copyright © 2026 **Molinays**. Tutti i diritti riservati. Le dipendenze di terze parti (yt-dlp, FFmpeg, Electron e altre) mantengono le rispettive licenze.
+Copyright © 2026 **Molinays**, distribuito con [licenza MIT](LICENSE). Le dipendenze di terze parti (yt-dlp, FFmpeg, Electron e altre) mantengono le rispettive licenze: le build FFmpeg distribuite sono GPL/LGPL, quindi la ridistribuzione dell'eseguibile deve rispettarne i termini.

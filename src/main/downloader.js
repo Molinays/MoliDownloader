@@ -1,3 +1,4 @@
+/* MoliDowloader — Copyright © 2026 Molinays · SPDX-License-Identifier: MIT */
 'use strict';
 
 const fs = require('fs');
@@ -7,6 +8,7 @@ const { pathToFileURL } = require('url');
 const { spawn, execFile } = require('child_process');
 const { EventEmitter } = require('events');
 const binaries = require('./binaries');
+const resolver = require('./resolver');
 
 const MAX_ACTIVE = 2;
 const jobs = new Map();
@@ -34,6 +36,7 @@ function publicJob(job) {
     size: job.size,
     files: job.files,
     error: job.error,
+    resolvedFrom: job.resolvedFrom || '',
     createdAt: job.createdAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
@@ -82,6 +85,15 @@ function addFile(job, filePath) {
     name: path.basename(resolved),
     size: stat.size,
   });
+}
+
+function safeFileName(value) {
+  const cleaned = String(value || '')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '');
+  return cleaned.slice(0, 120);
 }
 
 function parseClock(clock) {
@@ -145,9 +157,11 @@ function handleLine(job, rawLine) {
   if (destination2) addFile(job, destination2[1]);
 }
 
-function buildArgs(url, settings, ytdlpPath, ffmpegDir, jsRuntime) {
+function buildArgs(url, settings, ytdlpPath, ffmpegDir, jsRuntime, extra = {}) {
   const outputDir = (settings.output_dir || '').trim() || path.join(require('os').homedir(), 'Downloads');
-  const template = (settings.output_template || '%(title)s.%(ext)s').trim() || '%(title)s.%(ext)s';
+  const fallbackTemplate = (settings.output_template || '%(title)s.%(ext)s').trim() || '%(title)s.%(ext)s';
+  const title = safeFileName(extra.title);
+  const template = title ? `${title}.%(ext)s` : fallbackTemplate;
   fs.mkdirSync(outputDir, { recursive: true });
 
   const fmt = settings.format === 'audio' ? 'audio' : 'video';
@@ -182,6 +196,12 @@ function buildArgs(url, settings, ytdlpPath, ffmpegDir, jsRuntime) {
   if (ffmpegDir) {
     args.push('--ffmpeg-location', ffmpegDir);
   }
+
+  const headers = extra.headers || {};
+  const userAgent = headers['user-agent'] || resolver.UA;
+  args.push('--user-agent', userAgent);
+  if (headers.referer) args.push('--add-header', `Referer:${headers.referer}`);
+  if (headers.origin) args.push('--add-header', `Origin:${headers.origin}`);
 
   // yt-dlp richiede un runtime JavaScript per le sfide di YouTube.
   // Usiamo Electron stesso in modalità Node, senza dipendenze esterne.
@@ -281,9 +301,20 @@ async function runJob(job) {
       throw new Error('yt-dlp non trovato. Aggiorna i binari dalle impostazioni.');
     }
 
-    const args = buildArgs(job.url, job.settings, ytdlp.path, tools.binDir, process.execPath);
-    addLog(job, `[app] ${path.basename(ytdlp.path)} ${args.includes('--no-playlist') ? '(singolo video)' : '(playlist)'}`);
-    addLog(job, '[app] runtime JavaScript YouTube: Electron (Node)');
+    let targetUrl = job.url;
+    let extra = {};
+    if (resolver.isSupported(job.url)) {
+      addLog(job, `[app] Risoluzione del link di ${new URL(job.url).hostname}`);
+      const resolved = await resolver.resolve(job.url, (line) => addLog(job, `[resolve] ${line}`));
+      targetUrl = resolved.url;
+      extra = { title: resolved.title, headers: resolved.headers };
+      if (resolved.title && !job.title) job.title = resolved.title;
+      job.resolvedFrom = job.url;
+      emit(job, true);
+    }
+
+    const args = buildArgs(targetUrl, job.settings, ytdlp.path, tools.binDir, process.execPath, extra);
+    addLog(job, `[app] yt-dlp avviato (${args.includes('--no-playlist') ? 'video singolo' : 'playlist'})`);
 
     proc = spawn(ytdlp.path, args, {
       cwd: job.settings.output_dir || process.cwd(),
@@ -329,6 +360,9 @@ async function runJob(job) {
       job.error = errorLine
         ? errorLine.replace(/^ERROR:\s*/i, '').slice(0, 400)
         : `yt-dlp è terminato con codice ${code}`;
+      if (job.resolvedFrom && /403|401|forbidden|expired|token/i.test(`${job.error} ${job.log.join(' ')}`)) {
+        job.error = `${job.error} — Il link del player potrebbe essere scaduto: riprova a risolverlo dal sito.`;
+      }
     }
   } catch (error) {
     job.status = job.cancelled ? 'cancelled' : 'error';

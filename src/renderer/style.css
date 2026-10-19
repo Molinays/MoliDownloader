@@ -420,15 +420,15 @@ select option { background: var(--bg3); color: #fff; }
 }
 
 .toggle .slider::before {
-  content: "✓";
+  content: "";
   position: absolute;
-  font-size: 12px;
-  font-weight: 700;
-  color: #000;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border-radius: 2px;
   transform: scale(0);
   opacity: 0;
   transition: all .2s cubic-bezier(0.4, 0, 0.2, 1);
-  line-height: 1;
 }
 
 .toggle-item:hover .toggle .slider { border-color: #555; }
@@ -438,7 +438,6 @@ select option { background: var(--bg3); color: #fff; }
   border-color: #000;
 }
 .toggle input:checked ~ .slider::before {
-  color: #fff;
   transform: scale(1);
   opacity: 1;
 }
@@ -529,7 +528,6 @@ select option { background: var(--bg3); color: #fff; }
 
 /* --- STATO VUOTO --- */
 .empty-state { text-align: center; padding: 60px 20px; color: var(--text3); font-size: 13px; font-family: 'JetBrains Mono', monospace; }
-.empty-icon { font-size: 32px; margin-bottom: 12px; display: block; filter: grayscale(1) opacity(0.3); }
 
 /* =========================================
    MODALI (CON GLOW)
@@ -897,7 +895,6 @@ select option { background: var(--bg3); color: #fff; }
   background: radial-gradient(circle at center, #0a0a0a, #000 70%);
 }
 
-.preview-empty-icon { font-size: 34px; filter: grayscale(1) opacity(0.7); }
 .preview-empty-sub { font-size: 11px; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
 
 .preview-badge {
@@ -1017,7 +1014,13 @@ select option { background: var(--bg3); color: #fff; }
   overflow: hidden;
 }
 .tl-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0.85; }
-.tl-noimg { font-size: 26px; filter: grayscale(1) opacity(0.6); }
+.tl-noimg {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--text3);
+  text-transform: uppercase;
+}
 
 .tl-index, .tl-dur {
   position: absolute;
@@ -1251,19 +1254,6 @@ body.dragging .preview-box {
   transition: border-color 0.2s, background 0.2s;
 }
 .source-card.dragging { border-color: #fff; background: rgba(255,255,255,0.06); }
-.source-card-icon {
-  width: 42px;
-  height: 42px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  border: 1px solid var(--glass-border);
-  background: rgba(255,255,255,0.02);
-  font-size: 20px;
-  filter: grayscale(0.4);
-  flex-shrink: 0;
-}
 .source-card-body { flex: 1; min-width: 0; }
 .source-card-title {
   font-size: 13px;
@@ -1574,11 +1564,12 @@ body.dragging .source-card {
    ========================================= */
 .copyright {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  color: var(--text3);
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  letter-spacing: 0.06em;
   white-space: nowrap;
-  margin-left: 10px;
+  margin-left: 16px;
   user-select: none;
 }
 .info-view { background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.03), transparent 55%); }
@@ -1597,6 +1588,31 @@ body.dragging .source-card {
   line-height: 1.8;
   border-left: 2px solid #333;
   padding-left: 10px;
+}
+.dir-list { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+.dir-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+  background: rgba(255,255,255,0.015);
+}
+.dir-main { flex: 1; min-width: 0; }
+.dir-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.dir-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text2);
+}
+.dir-path {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--text3);
+  margin-top: 3px;
+  overflow-wrap: anywhere;
 }
 .deps-list { display: flex; flex-direction: column; gap: 7px; margin: 10px 0 4px; }
 .dep-row {

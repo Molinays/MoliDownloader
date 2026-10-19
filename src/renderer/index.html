@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- MoliDowloader — Copyright © 2026 Molinays. Tutti i diritti riservati. -->
+<!-- MoliDowloader — Copyright © 2026 Molinays · SPDX-License-Identifier: MIT -->
 <html lang="it">
 
 <head>
@@ -27,7 +27,7 @@
         </svg>
       </div>
       <span class="logo-text">MoliDowloader</span>
-      <span class="badge">Electron · yt-dlp · ffmpeg</span>
+      <span class="badge">Desktop</span>
 
       <nav class="view-tabs" aria-label="Sezioni">
         <button class="view-tab active" data-view="download">Download</button>
@@ -211,7 +211,7 @@
         </div>
 
         <div id="jobsList" class="jobs-list">
-          <div class="empty-state"><span class="empty-icon">📭</span>Nessun download ancora</div>
+          <div class="empty-state">Nessun download ancora</div>
         </div>
 
         <div class="panel-section info-panel">
@@ -246,7 +246,6 @@
           <div class="preview-box" id="previewBox">
             <video id="edVideo" playsinline controls></video>
             <div class="preview-empty" id="previewEmpty">
-              <div class="preview-empty-icon">🎬</div>
               <div>Importa clip o trascina qui i file</div>
               <div class="preview-empty-sub">Taglia, sistema l'audio e monta con FFmpeg</div>
             </div>
@@ -254,7 +253,7 @@
           </div>
 
           <div class="transport">
-            <button id="btnPreviewPlay" class="btn-sm">▶ Selezione</button>
+            <button id="btnPreviewPlay" class="btn-sm">Anteprima selezione</button>
             <span id="edTime" class="mono">00:00.0 / 00:00.0</span>
             <span id="edSelection" class="muted">Nessuna clip selezionata</span>
           </div>
@@ -345,6 +344,13 @@
                   <option value="28">Compatta</option>
                 </select>
               </div>
+              <div class="field">
+                <label for="editorDir">Cartella output</label>
+                <div class="folder-row">
+                  <input id="editorDir" type="text" placeholder="Downloads">
+                  <button class="btn-icon" data-pick-folder="editor" title="Sfoglia">Sfoglia</button>
+                </div>
+              </div>
             </div>
             <button id="btnExport" class="btn-dl btn-export">Esporta montaggio</button>
             <div class="progress-bar export-bar"><div id="exportBar" class="progress-fill" style="width:0%"></div></div>
@@ -363,7 +369,6 @@
     <main id="viewCompress" class="compress-view" hidden>
       <div class="left compress-left" id="compressSettings">
         <div class="source-card" id="compressDrop">
-          <div class="source-card-icon">🎞️</div>
           <div class="source-card-body">
             <div class="source-card-title" id="compressSourceName">Nessun video selezionato</div>
             <div class="source-card-meta" id="compressSourceMeta">Scegli un file o trascinalo qui per iniziare</div>
@@ -673,7 +678,14 @@
             <label for="compressOutput">File di output</label>
             <div class="folder-row">
               <input id="compressOutput" type="text" placeholder="Scelto al salvataggio" spellcheck="false">
-              <button id="btnBrowseCompressOutput" class="btn-icon" title="Sfoglia">...</button>
+              <button id="btnBrowseCompressOutput" class="btn-icon" title="Sfoglia">Sfoglia</button>
+            </div>
+          </div>
+          <div class="field compress-output-field">
+            <label for="compressDirField">Cartella compressioni</label>
+            <div class="folder-row">
+              <input id="compressDirField" type="text" placeholder="Downloads" spellcheck="false">
+              <button class="btn-icon" data-pick-folder="compress" title="Sfoglia">Sfoglia</button>
             </div>
           </div>
           <button id="btnStartCompress" class="btn-dl btn-compress" disabled>Comprimi video</button>
@@ -698,6 +710,44 @@
             <span class="panel-badge" id="infoAppBadge">...</span>
           </div>
           <div id="infoSystem" class="info-table"><div class="muted">Caricamento...</div></div>
+        </div>
+
+        <div class="panel-section info-block">
+          <div class="panel-title">
+            <h3>Cartelle</h3>
+          </div>
+          <div class="dir-list">
+            <div class="dir-row">
+              <div class="dir-main">
+                <div class="dir-name">Download</div>
+                <div class="dir-path" id="dirPathDownloads">Predefinita</div>
+              </div>
+              <div class="dir-actions">
+                <button class="btn-sm" data-set-folder="downloadsDir">Cambia</button>
+                <button class="btn-sm" data-reset-folder="downloadsDir">Ripristina</button>
+              </div>
+            </div>
+            <div class="dir-row">
+              <div class="dir-main">
+                <div class="dir-name">Compressioni</div>
+                <div class="dir-path" id="dirPathCompress">Predefinita</div>
+              </div>
+              <div class="dir-actions">
+                <button class="btn-sm" data-set-folder="compressDir">Cambia</button>
+                <button class="btn-sm" data-reset-folder="compressDir">Ripristina</button>
+              </div>
+            </div>
+            <div class="dir-row">
+              <div class="dir-main">
+                <div class="dir-name">Montaggi</div>
+                <div class="dir-path" id="dirPathEditor">Predefinita</div>
+              </div>
+              <div class="dir-actions">
+                <button class="btn-sm" data-set-folder="editorDir">Cambia</button>
+                <button class="btn-sm" data-reset-folder="editorDir">Ripristina</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="panel-section info-block">
@@ -738,7 +788,7 @@
         </div>
         <div class="panel-section">
           <h3>Copyright</h3>
-          <div class="info-license">MoliDowloader<br>© 2026 Molinays · Tutti i diritti riservati</div>
+          <div class="info-license">MoliDowloader<br>© 2026 Molinays · Licenza MIT</div>
         </div>
       </div>
     </main>
@@ -748,7 +798,7 @@
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h3 id="modalTitle">Log download</h3>
-        <button id="btnCloseLog" class="btn-close" aria-label="Chiudi">✕</button>
+        <button id="btnCloseLog" class="btn-close" aria-label="Chiudi">×</button>
       </div>
       <div id="logBox" class="log-box">Caricamento...</div>
     </div>

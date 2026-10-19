@@ -1,3 +1,4 @@
+/* MoliDowloader — Copyright © 2026 Molinays · SPDX-License-Identifier: MIT */
 'use strict';
 
 const api = window.moli;
@@ -16,6 +17,8 @@ const state = {
   previewStopAt: null,
   lastExport: null,
   downloadsDir: '',
+  folderDefaults: {},
+  settings: { downloadsDir: '', compressDir: '', editorDir: '' },
   defaults: null,
   updateBusy: false,
   compressCatalog: null,
@@ -131,9 +134,16 @@ async function init() {
   try {
     const defaults = await api.defaults();
     state.defaults = defaults;
-    state.downloadsDir = defaults.downloads || '';
-    $('outputDir').value = defaults.outputDir || '';
-    $('outputDirAudio').value = defaults.outputDir || '';
+    state.folderDefaults = defaults.folders || {};
+    state.settings = {
+      downloadsDir: '',
+      compressDir: '',
+      editorDir: '',
+      ...(defaults.settings || {}),
+    };
+    state.downloadsDir = state.settings.downloadsDir || defaults.outputDir || '';
+    syncFolderInputs();
+    renderDirs();
     renderEngineInfo(defaults);
   } catch (error) {
     $('statusDot').classList.add('error');
@@ -190,6 +200,17 @@ function bindEvents() {
   document.querySelectorAll('[data-pick-folder]').forEach((button) => {
     button.addEventListener('click', () => pickFolder(button.dataset.pickFolder));
   });
+
+  const folderInputs = [
+    ['outputDir', 'video'],
+    ['outputDirAudio', 'audio'],
+    ['editorDir', 'editor'],
+    ['compressDirField', 'compress'],
+  ];
+  for (const [id, which] of folderInputs) {
+    const input = $(id);
+    if (input) input.addEventListener('change', () => persistFolderInput(which));
+  }
 
   $('jobsList').addEventListener('click', onJobsClick);
   $('btnCloseLog').addEventListener('click', closeLog);
@@ -360,14 +381,100 @@ function renderEngineInfo(defaults) {
 
 /* ============================ DOWNLOADER ============================ */
 
-async function pickFolder(which) {
-  const input = $(which === 'audio' ? 'outputDirAudio' : 'outputDir');
+const FOLDER_TARGETS = {
+  video: 'downloadsDir',
+  audio: 'downloadsDir',
+  compress: 'compressDir',
+  editor: 'editorDir',
+};
+
+const FOLDER_BY_KEY = {
+  downloadsDir: 'video',
+  compressDir: 'compress',
+  editorDir: 'editor',
+};
+
+function syncFolderInputs() {
+  $('outputDir').value = state.settings.downloadsDir || '';
+  $('outputDirAudio').value = state.settings.downloadsDir || '';
+  $('editorDir').value = state.settings.editorDir || '';
+  $('compressDirField').value = state.settings.compressDir || '';
+}
+
+function renderDirs() {
+  const rows = [
+    ['dirPathDownloads', state.settings.downloadsDir, state.folderDefaults.downloadsDir],
+    ['dirPathCompress', state.settings.compressDir, state.folderDefaults.compressDir],
+    ['dirPathEditor', state.settings.editorDir, state.folderDefaults.editorDir],
+  ];
+  for (const [id, value, fallback] of rows) {
+    const element = $(id);
+    if (!element) continue;
+    if (!value) element.textContent = 'Predefinita';
+    else element.textContent = value === fallback ? `${value} (predefinita)` : value;
+  }
+}
+
+async function persistFolderInput(which) {
+  const input = folderInput(which);
+  const key = FOLDER_TARGETS[which];
+  if (!input || !key) return;
+  const value = (input.value || '').trim();
+  if (state.settings[key] === value) return;
   try {
-    const folder = await api.pickFolder(input.value);
-    if (folder) input.value = folder;
+    const saved = await api.settingsSet({ [key]: value });
+    state.settings = { ...state.settings, ...(saved || {}) };
+  } catch {
+    /* l'impostazione resta in memoria per questa sessione */
+  }
+  syncFolderInputs();
+  renderDirs();
+}
+
+function folderInput(which) {
+  if (which === 'audio') return $('outputDirAudio');
+  if (which === 'video') return $('outputDir');
+  if (which === 'editor') return $('editorDir');
+  if (which === 'compress') return $('compressDirField');
+  return null;
+}
+
+async function pickFolder(which) {
+  const input = folderInput(which);
+  try {
+    const folder = await api.pickFolder(input ? input.value : '');
+    if (!folder) return;
+    await applyFolder(which, folder);
   } catch (error) {
     toast(errorMessage(error), 'err');
   }
+}
+
+async function saveFolder(key, value) {
+  try {
+    const saved = await api.settingsSet({ [key]: value });
+    state.settings = { ...state.settings, ...(saved || {}) };
+  } catch (error) {
+    toast(errorMessage(error), 'err');
+    return false;
+  }
+  syncFolderInputs();
+  if (key === 'downloadsDir') state.downloadsDir = state.settings.downloadsDir;
+  if (key === 'compressDir') prefillCompressOutput();
+  renderDirs();
+  return true;
+}
+
+async function applyFolder(which, folder) {
+  const key = FOLDER_TARGETS[which];
+  if (!key) return;
+  if (await saveFolder(key, folder)) toast('Cartella aggiornata');
+}
+
+async function resetFolder(which) {
+  const key = FOLDER_TARGETS[which];
+  if (!key) return;
+  if (await saveFolder(key, '')) toast('Cartella predefinita ripristinata');
 }
 
 function collectSettings() {
@@ -474,7 +581,7 @@ function renderJobs() {
   const jobs = Array.from(state.jobs.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
   if (!jobs.length) {
-    container.innerHTML = '<div class="empty-state"><span class="empty-icon">📭</span>Nessun download ancora</div>';
+    container.innerHTML = '<div class="empty-state">Nessun download ancora</div>';
     return;
   }
 
@@ -507,7 +614,7 @@ function renderJobs() {
       ${job.error ? `<div class="job-error">${esc(job.error)}</div>` : ''}
       ${files ? `<div class="job-files">${files}</div>` : ''}
       <div class="job-actions">
-        ${active ? `<button class="btn-sm btn-cancel" data-action="cancel" data-id="${esc(job.id)}">✕ Annulla</button>` : ''}
+        ${active ? `<button class="btn-sm btn-cancel" data-action="cancel" data-id="${esc(job.id)}">× Annulla</button>` : ''}
         <button class="btn-sm" data-action="log" data-id="${esc(job.id)}">Log</button>
         <button class="btn-sm" data-action="reveal-job" data-id="${esc(job.id)}">Cartella</button>
       </div>
@@ -717,7 +824,7 @@ function renderTimeline() {
     const selected = clip.id === state.selectedId;
     const thumbnail = clip.thumbnailUrl
       ? `<img src="${esc(clip.thumbnailUrl)}" alt="">`
-      : `<span class="tl-noimg">${clip.hasVideo ? '🎞️' : '🎵'}</span>`;
+      : `<span class="tl-noimg">${clip.hasVideo ? 'Video' : 'Audio'}</span>`;
     const waveform = clip.waveformUrl
       ? `<img class="tl-wave-img" src="${esc(clip.waveformUrl)}" alt="">`
       : '';
@@ -812,8 +919,8 @@ function renderInspector() {
       <span class="toggle"><input id="clipMute" type="checkbox" ${clip.mute ? 'checked' : ''}><span class="slider"></span></span>
     </label>
     <div class="clip-actions">
-      <button class="btn-sm" data-act="left" title="Sposta a sinistra">←</button>
-      <button class="btn-sm" data-act="right" title="Sposta a destra">→</button>
+      <button class="btn-sm" data-act="left" title="Sposta a sinistra">Sinistra</button>
+      <button class="btn-sm" data-act="right" title="Sposta a destra">Destra</button>
       <button class="btn-sm" data-act="duplicate">Duplica</button>
       <button class="btn-sm btn-cancel" data-act="remove">Rimuovi</button>
     </div>`;
@@ -2116,6 +2223,15 @@ function applyCompressOutputExtension() {
   input.value = dot > slash ? `${value.slice(0, dot)}.${container}` : `${value}.${container}`;
 }
 
+function prefillCompressOutput() {
+  const input = $('compressOutput');
+  const dir = state.settings.compressDir;
+  if (!input || !dir || !state.compressSource || input.value.trim()) return;
+  const base = state.compressSource.name.replace(/\.[^.]+$/, '');
+  const container = compressContainer();
+  input.value = `${dir}/${base}-compresso.${container}`;
+}
+
 async function loadCompressSource(filePath) {
   if (!filePath) return;
   if (state.compressBusy) {
@@ -2132,6 +2248,7 @@ async function loadCompressSource(filePath) {
     resetCompressForm();
     renderCompressSource();
     applyCompressPreset('balanced');
+    prefillCompressOutput();
     updateCompressSummary();
     toast(`Video caricato: ${source.name}`);
   } catch (error) {
@@ -2521,6 +2638,15 @@ function bindInfoEvents() {
   on('btnApplyRecommended', 'click', applyInfoRecommended);
   on('btnCheckUpdate', 'click', () => checkUpdates());
   on('btnInstallUpdate', 'click', () => installUpdate());
+  on('viewInfo', 'click', (event) => {
+    const reset = event.target.closest('[data-reset-folder]');
+    if (reset) {
+      resetFolder(FOLDER_BY_KEY[reset.dataset.resetFolder]);
+      return;
+    }
+    const button = event.target.closest('[data-set-folder]');
+    if (button) pickFolder(FOLDER_BY_KEY[button.dataset.setFolder]);
+  });
   on('infoDeps', 'click', (event) => {
     const button = event.target.closest('[data-dep-action]');
     if (button && !state.depsDownloading) downloadDependency(button.dataset.depAction);
@@ -2554,6 +2680,7 @@ async function refreshInfo() {
 }
 
 function renderInfo() {
+  renderDirs();
   renderInfoSystem();
   renderInfoDeps();
   renderInfoGpu();

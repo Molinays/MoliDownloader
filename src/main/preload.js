@@ -1,3 +1,4 @@
+/* MoliDowloader — Copyright © 2026 Molinays · SPDX-License-Identifier: MIT */
 'use strict';
 
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
@@ -22,6 +23,8 @@ contextBridge.exposeInMainWorld('moli', {
   platform: process.platform,
 
   defaults: () => ipcRenderer.invoke('app:defaults'),
+  settingsGet: () => ipcRenderer.invoke('settings:get'),
+  settingsSet: (patch) => ipcRenderer.invoke('settings:set', patch),
   pickFolder: (current) => ipcRenderer.invoke('dialog:pickFolder', current),
   pickMedia: () => ipcRenderer.invoke('dialog:pickMedia'),
   pickAudio: () => ipcRenderer.invoke('dialog:pickAudio'),
