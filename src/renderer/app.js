@@ -15,6 +15,12 @@ const state = {
   logJobId: null,
   logTimer: null,
   previewStopAt: null,
+  previewMode: 'clip',
+  previewIndex: -1,
+  history: [],
+  future: [],
+  historyAt: 0,
+  historyKey: '',
   lastExport: null,
   downloadsDir: '',
   folderDefaults: {},
@@ -232,7 +238,11 @@ function bindEvents() {
   $('btnExportTop').addEventListener('click', startExport);
   $('btnExport').addEventListener('click', startExport);
   $('btnCancelExport').addEventListener('click', cancelExport);
-  $('btnPreviewPlay').addEventListener('click', playSelection);
+  $('btnPreviewPlay').addEventListener('click', playSequence);
+  $('btnPreviewClip').addEventListener('click', playSelection);
+  $('btnPreviewStop').addEventListener('click', () => stopPreview());
+  $('btnUndo').addEventListener('click', undoEditor);
+  $('btnRedo').addEventListener('click', redoEditor);
   $('btnOpenExport').addEventListener('click', () => {
     if (state.lastExport) api.openPath(state.lastExport);
   });
@@ -251,24 +261,34 @@ function bindEvents() {
 
   $('musicVolume').addEventListener('input', (event) => {
     if (!state.music) return;
+    pushHistoryThrottled('musicVolume');
     state.music.volume = Number(event.target.value) / 100;
     $('musicVolumeLabel').textContent = `${event.target.value}%`;
+    const audio = musicElement();
+    if (audio) audio.volume = clamp(state.music.volume, 0, 1);
   });
   $('musicFadeIn').addEventListener('change', (event) => {
     if (!state.music) return;
+    pushHistory();
     state.music.fadeIn = Math.max(0, Number(event.target.value) || 0);
     event.target.value = state.music.fadeIn;
   });
   $('musicFadeOut').addEventListener('change', (event) => {
     if (!state.music) return;
+    pushHistory();
     state.music.fadeOut = Math.max(0, Number(event.target.value) || 0);
     event.target.value = state.music.fadeOut;
   });
   $('musicLoop').addEventListener('change', (event) => {
     if (!state.music) return;
+    pushHistory();
     state.music.loop = event.target.checked;
+    const audio = musicElement();
+    if (audio) audio.loop = state.music.loop;
   });
   $('btnMusicRemove').addEventListener('click', () => {
+    pushHistory();
+    stopMusicPreview();
     state.music = null;
     renderMusic();
     toast('Traccia musicale rimossa');
@@ -288,45 +308,156 @@ function bindEvents() {
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeLog();
-    if (event.key !== 'Delete' && event.key !== 'Backspace') return;
     if (state.view !== 'editor') return;
     const tag = (document.activeElement && document.activeElement.tagName) || '';
-    if (['INPUT', 'TEXTAREA', 'SELECT', 'VIDEO', 'BUTTON', 'A'].includes(tag)) return;
+    const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag);
+    const passive = !['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(tag);
+    const mod = event.ctrlKey || event.metaKey;
+
+    if (!typing && mod && event.key.toLowerCase() === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) redoEditor();
+      else undoEditor();
+      return;
+    }
+    if (!typing && mod && event.key.toLowerCase() === 'y') {
+      event.preventDefault();
+      redoEditor();
+      return;
+    }
+    if (passive && event.code === 'Space') {
+      event.preventDefault();
+      playSequence();
+      return;
+    }
+    if (passive && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      event.preventDefault();
+      seekPreview((event.key === 'ArrowRight' ? 1 : -1) * (event.shiftKey ? 5 : 1));
+      return;
+    }
+    if (passive && !mod && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      splitSelectedClip();
+      return;
+    }
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+    if (!passive) return;
     event.preventDefault();
     removeSelectedClip();
   });
 
+  let dragDepth = 0;
+  const showDropOverlay = (visible) => {
+    dragDepth = Math.max(0, dragDepth + (visible ? 1 : -1));
+    const dragging = dragDepth > 0;
+    document.body.classList.toggle('dragging', dragging);
+  };
+
   ['dragenter', 'dragover'].forEach((name) => {
     document.addEventListener(name, (event) => {
       event.preventDefault();
-      document.body.classList.add('dragging');
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      if (name === 'dragenter') showDropOverlay(true);
+      else document.body.classList.add('dragging');
     });
   });
-  document.addEventListener('dragleave', (event) => {
-    if (event.relatedTarget === null) document.body.classList.remove('dragging');
-  });
+  document.addEventListener('dragleave', () => showDropOverlay(false));
   document.addEventListener('drop', async (event) => {
     event.preventDefault();
+    dragDepth = 0;
     document.body.classList.remove('dragging');
-    const paths = api.getDroppedPaths(event.dataTransfer.files);
+    const paths = droppedPaths(event.dataTransfer);
     if (paths.length) {
       if (state.view === 'compress') {
         await loadCompressSource(paths[0]);
+      } else if (state.view === 'editor') {
+        await addPathsToEditor(paths);
       } else {
         switchView('editor');
         await addPathsToEditor(paths);
       }
       return;
     }
-    const text = event.dataTransfer.getData('text');
+    const text = event.dataTransfer ? event.dataTransfer.getData('text') : '';
     if (text && /^https?:\/\//i.test(text.trim())) {
       $('urlInput').value = text.trim();
       switchView('download');
+      return;
     }
+    toast('File non riconosciuto dal trascinamento: usa “+ Clip” oppure scegli il file', 'err');
   });
 }
 
 /* ============================== VIEWS ============================== */
+
+function normalizeDroppedPath(value) {
+  let text = String(value || '').trim();
+  if (!text) return '';
+  if (/^file:\/\//i.test(text)) {
+    try {
+      text = decodeURIComponent(new URL(text).pathname);
+    } catch {
+      text = text.replace(/^file:\/+/i, '');
+    }
+    text = text.replace(/^\/([A-Za-z]:)/, '$1');
+  }
+  if (/^\/[A-Za-z]:[\\/]/.test(text)) text = text.slice(1);
+  if (!/[\\/]/.test(text)) return '';
+  return text;
+}
+
+/** Percorsi dei file trascinati: API Electron, poi uri-list e infine text/plain. */
+function droppedPaths(dataTransfer) {
+  const paths = [];
+  const push = (value) => {
+    const clean = normalizeDroppedPath(value);
+    if (clean && !paths.includes(clean)) paths.push(clean);
+  };
+  if (!dataTransfer) return paths;
+  const files = (() => {
+    try {
+      return Array.from(dataTransfer.files || []);
+    } catch {
+      return [];
+    }
+  })();
+
+  if (api && files.length) {
+    try {
+      for (const value of api.getDroppedPaths(files) || []) push(value);
+    } catch {
+      /* provo i fallback */
+    }
+    if (!paths.length && typeof api.pathForFile === 'function') {
+      for (const file of files) {
+        try {
+          push(api.pathForFile(file));
+        } catch {
+          /* file senza percorso nativo */
+        }
+      }
+    }
+  }
+
+  if (!paths.length) {
+    for (const type of ['text/uri-list', 'text/plain']) {
+      let raw = '';
+      try {
+        raw = dataTransfer.getData(type) || '';
+      } catch {
+        raw = '';
+      }
+      if (!raw) continue;
+      for (const line of raw.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        if (/^(https?:|mailto:|data:)/i.test(trimmed)) continue;
+        push(trimmed);
+      }
+    }
+  }
+  return paths;
+}
 
 function switchView(view) {
   state.view = view;
@@ -734,6 +865,251 @@ function selectedClip() {
   return state.clips.find((clip) => clip.id === state.selectedId) || null;
 }
 
+/* --------------------------- storia (undo/redo) --------------------------- */
+
+function editorSnapshot() {
+  return JSON.stringify({
+    clips: state.clips,
+    music: state.music,
+    selectedId: state.selectedId,
+  });
+}
+
+function recordSnapshot(snapshot) {
+  if (!snapshot) return;
+  if (state.history[state.history.length - 1] === snapshot) return;
+  state.history.push(snapshot);
+  if (state.history.length > 80) state.history.shift();
+  state.future = [];
+  updateHistoryButtons();
+}
+
+function pushHistory() {
+  recordSnapshot(editorSnapshot());
+}
+
+function pushHistoryThrottled(key) {
+  const now = Date.now();
+  if (state.historyKey === key && now - state.historyAt < 900) {
+    state.historyAt = now;
+    return;
+  }
+  state.historyKey = key;
+  state.historyAt = now;
+  pushHistory();
+}
+
+function updateHistoryButtons() {
+  const undo = $('btnUndo');
+  const redo = $('btnRedo');
+  if (undo) undo.disabled = !state.history.length;
+  if (redo) redo.disabled = !state.future.length;
+}
+
+function restoreEditor(snapshot) {
+  let data = null;
+  try {
+    data = JSON.parse(snapshot);
+  } catch {
+    return;
+  }
+  stopPreview(false);
+  state.clips = Array.isArray(data.clips) ? data.clips : [];
+  state.music = data.music || null;
+  state.selectedId = data.selectedId || (state.clips[0] ? state.clips[0].id : null);
+  renderEditor();
+  loadPreview();
+  updateHistoryButtons();
+}
+
+function undoEditor() {
+  if (!state.history.length) return;
+  state.future.push(editorSnapshot());
+  const snapshot = state.history.pop();
+  restoreEditor(snapshot);
+  toast('Modifica annullata');
+}
+
+function redoEditor() {
+  if (!state.future.length) return;
+  state.history.push(editorSnapshot());
+  const snapshot = state.future.pop();
+  restoreEditor(snapshot);
+  toast('Modifica ripristinata');
+}
+
+/* --------------------------- anteprima sequenza --------------------------- */
+
+function mediaUrlForPath(filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/');
+  return `file:///${encodeURI(normalized).replace(/#/g, '%23').replace(/\?/g, '%3F')}`;
+}
+
+function musicElement() {
+  return $('edMusic');
+}
+
+function startMusicPreview() {
+  const music = state.music;
+  const audio = musicElement();
+  if (!audio) return;
+  if (!music) {
+    stopMusicPreview();
+    return;
+  }
+  audio.loop = Boolean(music.loop);
+  audio.volume = clamp(music.volume, 0, 1);
+  if (audio.dataset.path !== music.path) {
+    audio.dataset.path = music.path;
+    audio.src = mediaUrlForPath(music.path);
+  }
+  try {
+    audio.currentTime = 0;
+  } catch {
+    /* sorgente non ancora pronta */
+  }
+  audio.play().catch(() => {
+    /* la musica è un extra dell'anteprima */
+  });
+}
+
+function stopMusicPreview() {
+  const audio = musicElement();
+  if (!audio) return;
+  audio.pause();
+  try {
+    audio.currentTime = 0;
+  } catch {
+    /* ignore */
+  }
+}
+
+function updatePreviewInfo(clip) {
+  if (!clip) {
+    $('edSelection').textContent = 'Nessuna clip selezionata';
+    return;
+  }
+  const duration = fmtTime((clip.out - clip.in) / (clip.speed || 1));
+  if (state.previewMode === 'sequence' && state.previewIndex >= 0) {
+    $('edSelection').textContent = `${state.previewIndex + 1}/${state.clips.length} · ${clip.name} · ${duration}`;
+  } else {
+    $('edSelection').textContent = `${clip.name} · ${duration}`;
+  }
+}
+
+function stopPreview(reset = true) {
+  state.previewMode = 'clip';
+  state.previewIndex = -1;
+  state.previewStopAt = null;
+  const video = $('edVideo');
+  if (video) {
+    video.pause();
+    video.playbackRate = 1;
+  }
+  stopMusicPreview();
+  const play = $('btnPreviewPlay');
+  if (play) play.classList.remove('playing');
+  if (reset) updateVideoTime();
+}
+
+function startSequenceClip() {
+  const clip = state.clips[state.previewIndex];
+  if (!clip) {
+    stopPreview();
+    return;
+  }
+  state.selectedId = clip.id;
+  renderTimeline();
+  renderInspector();
+  const video = $('edVideo');
+  state.previewStopAt = clip.out;
+  const play = () => {
+    video.playbackRate = clamp(clip.speed || 1, 0.5, 2);
+    video.volume = clip.mute ? 0 : Math.min(1, clip.volume);
+    try {
+      video.currentTime = Math.min(clip.in + 0.02, Math.max(0, clip.duration - 0.05));
+    } catch {
+      /* seek non disponibile */
+    }
+    video.play().catch(() => {
+      toast('Anteprima non disponibile per questo formato', 'err');
+      stopPreview();
+    });
+  };
+  if (video.dataset.clipId !== clip.id) {
+    video.dataset.clipId = clip.id;
+    video.src = clip.mediaUrl;
+    video.load();
+    video.addEventListener(
+      'loadedmetadata',
+      () => {
+        if (state.previewMode === 'sequence' && state.previewIndex >= 0) play();
+      },
+      { once: true },
+    );
+  } else {
+    play();
+  }
+  updatePreviewInfo(clip);
+  updateVideoTime();
+}
+
+function playSequence() {
+  if (!state.clips.length) {
+    toast('Aggiungi almeno una clip al montaggio', 'err');
+    return;
+  }
+  const start = state.clips.findIndex((clip) => clip.id === state.selectedId);
+  state.previewMode = 'sequence';
+  state.previewIndex = start >= 0 ? start : 0;
+  const play = $('btnPreviewPlay');
+  if (play) play.classList.add('playing');
+  startMusicPreview();
+  startSequenceClip();
+}
+
+function seekPreview(delta) {
+  const clip = selectedClip();
+  const video = $('edVideo');
+  if (!clip || video.dataset.clipId !== clip.id) return;
+  video.currentTime = clamp(video.currentTime + delta, clip.in, clip.out);
+  updateVideoTime();
+}
+
+function splitSelectedClip() {
+  const clip = selectedClip();
+  if (!clip) {
+    toast('Seleziona una clip da dividere', 'err');
+    return;
+  }
+  if (clip.out - clip.in < 0.3) {
+    toast('Clip troppo corta per essere divisa', 'err');
+    return;
+  }
+  const video = $('edVideo');
+  // Se il player non ha ancora finito di caricare/seekare la clip, il cursore
+  // vale 0: in quel caso divido al centro invece che a inizio clip.
+  const usable =
+    video.dataset.clipId === clip.id &&
+    video.readyState >= 1 &&
+    Number.isFinite(video.currentTime) &&
+    video.currentTime > clip.in + 0.05 &&
+    video.currentTime < clip.out - 0.05;
+  const raw = usable ? video.currentTime : (clip.in + clip.out) / 2;
+  const at = clamp(raw, clip.in + 0.1, clip.out - 0.1);
+  pushHistory();
+  const index = state.clips.findIndex((item) => item.id === clip.id);
+  const second = { ...clip, id: uid(), in: at, out: clip.out, fadeIn: 0 };
+  second.fadeOut = Math.min(clip.fadeOut, (second.out - second.in) / 2);
+  clip.out = at;
+  clip.fadeOut = Math.min(clip.fadeOut, (clip.out - clip.in) / 2);
+  state.clips.splice(index + 1, 0, second);
+  state.selectedId = second.id;
+  renderEditor();
+  loadPreview();
+  toast('Clip divisa al cursore');
+}
+
 function projectDuration() {
   return state.clips.reduce((total, clip) => {
     const duration = Math.max(0, clip.out - clip.in);
@@ -759,6 +1135,7 @@ async function importMedia() {
 
 async function addPathsToEditor(paths) {
   if (!paths || !paths.length) return;
+  const before = editorSnapshot();
   state.editorBusy += 1;
   updateEditorMeta();
 
@@ -799,6 +1176,7 @@ async function addPathsToEditor(paths) {
   }
 
   state.editorBusy = Math.max(0, state.editorBusy - 1);
+  if (added) recordSnapshot(before);
   renderEditor();
   if (added && selectedClip()) loadPreview();
   if (added) toast(`${added} clip aggiunte all'editor`);
@@ -809,6 +1187,7 @@ function renderEditor() {
   renderInspector();
   renderMusic();
   updateEditorMeta();
+  updateHistoryButtons();
 }
 
 function renderTimeline() {
@@ -882,14 +1261,17 @@ function renderInspector() {
       <div class="field">
         <label for="clipIn">Inizio <span class="range-value" id="clipInValue">${fmtTime(clip.in)}</span></label>
         <input id="clipIn" type="range" min="0" max="${clip.duration}" step="0.05" value="${clip.in}">
+        <input id="clipInNum" class="trim-num" type="number" min="0" max="${clip.duration}" step="0.01" value="${Number(clip.in.toFixed(2))}" aria-label="Inizio esatto in secondi">
       </div>
       <div class="field">
         <label for="clipOut">Fine <span class="range-value" id="clipOutValue">${fmtTime(clip.out)}</span></label>
         <input id="clipOut" type="range" min="0" max="${clip.duration}" step="0.05" value="${clip.out}">
+        <input id="clipOutNum" class="trim-num" type="number" min="0" max="${clip.duration}" step="0.01" value="${Number(clip.out.toFixed(2))}" aria-label="Fine esatta in secondi">
       </div>
       <div class="trim-quick">
         <button class="btn-sm" data-trim="in">IN = cursore</button>
         <button class="btn-sm" data-trim="out">OUT = cursore</button>
+        <button class="btn-sm" data-trim="split">Dividi</button>
         <button class="btn-sm" data-trim="reset">Reset</button>
       </div>
       <div class="clip-duration">Durata selezione <strong id="clipDuration">${fmtTime((clip.out - clip.in) / (clip.speed || 1))}</strong></div>
@@ -941,6 +1323,14 @@ function refreshInspectorValues() {
   }
   if ($('clipInValue')) $('clipInValue').textContent = fmtTime(clip.in);
   if ($('clipOutValue')) $('clipOutValue').textContent = fmtTime(clip.out);
+  if ($('clipInNum') && document.activeElement !== $('clipInNum')) {
+    $('clipInNum').max = String(clip.duration);
+    $('clipInNum').value = String(Number(clip.in.toFixed(2)));
+  }
+  if ($('clipOutNum') && document.activeElement !== $('clipOutNum')) {
+    $('clipOutNum').max = String(clip.duration);
+    $('clipOutNum').value = String(Number(clip.out.toFixed(2)));
+  }
   if ($('clipDuration')) $('clipDuration').textContent = fmtTime((clip.out - clip.in) / (clip.speed || 1));
   if ($('clipVolumeValue')) $('clipVolumeValue').textContent = `${Math.round(clip.volume * 100)}%`;
   if ($('clipVolume')) $('clipVolume').value = String(Math.round(clip.volume * 100));
@@ -990,6 +1380,7 @@ function selectClip(id) {
 function loadPreview() {
   const clip = selectedClip();
   const video = $('edVideo');
+  if (state.previewMode === 'sequence') stopPreview(false);
 
   if (!clip) {
     video.pause();
@@ -1006,9 +1397,10 @@ function loadPreview() {
   $('previewEmpty').hidden = true;
   $('previewBadge').hidden = false;
   $('previewBadge').textContent = clip.hasVideo ? (clip.hasAudio ? 'VIDEO' : 'MUTO') : 'AUDIO';
-  $('edSelection').textContent = `${clip.name} · ${fmtTime((clip.out - clip.in) / (clip.speed || 1))}`;
+  updatePreviewInfo(clip);
   state.previewStopAt = null;
   video.volume = clip.mute ? 0 : Math.min(1, clip.volume);
+  video.playbackRate = clamp(clip.speed || 1, 0.5, 2);
 
   if (video.dataset.clipId !== clip.id) {
     video.dataset.clipId = clip.id;
@@ -1040,10 +1432,25 @@ function updateVideoTime() {
 function onVideoTime() {
   updateVideoTime();
   const video = $('edVideo');
-  if (state.previewStopAt != null && video.currentTime >= state.previewStopAt - 0.03) {
-    state.previewStopAt = null;
+  if (state.previewStopAt == null) return;
+  if (video.currentTime < state.previewStopAt - 0.04) return;
+
+  if (state.previewMode === 'sequence') {
     video.pause();
+    state.previewIndex += 1;
+    if (state.previewIndex >= state.clips.length) {
+      stopPreview(false);
+      $('edSelection').textContent = 'Fine del montaggio';
+      toast('Anteprima completata');
+      return;
+    }
+    startSequenceClip();
+    return;
   }
+
+  state.previewStopAt = null;
+  video.pause();
+  video.playbackRate = 1;
 }
 
 function playSelection() {
@@ -1052,9 +1459,16 @@ function playSelection() {
     toast('Seleziona una clip', 'err');
     return;
   }
+  stopMusicPreview();
+  state.previewMode = 'clip';
+  state.previewIndex = -1;
+  const play = $('btnPreviewPlay');
+  if (play) play.classList.remove('playing');
   const video = $('edVideo');
+  video.playbackRate = clamp(clip.speed || 1, 0.5, 2);
   video.currentTime = clip.in;
   state.previewStopAt = clip.out;
+  updatePreviewInfo(clip);
   video.play().catch(() => {
     toast('Anteprima non disponibile per questo formato', 'err');
     state.previewStopAt = null;
@@ -1067,14 +1481,17 @@ function onInspectorInput(event) {
   const target = event.target;
 
   if (target.id === 'clipIn') {
+    pushHistoryThrottled(`in:${clip.id}`);
     clip.in = clamp(Number(target.value) || 0, 0, Math.max(0, clip.out - 0.05));
     target.value = String(clip.in);
     refreshInspectorValues();
   } else if (target.id === 'clipOut') {
+    pushHistoryThrottled(`out:${clip.id}`);
     clip.out = clamp(Number(target.value) || 0, clip.in + 0.05, clip.duration);
     target.value = String(clip.out);
     refreshInspectorValues();
   } else if (target.id === 'clipVolume') {
+    pushHistoryThrottled(`volume:${clip.id}`);
     clip.volume = clamp(Number(target.value) / 100, 0, 2);
     $('clipVolumeValue').textContent = `${target.value}%`;
     syncTimelineClip(clip);
@@ -1091,20 +1508,35 @@ function onInspectorChange(event) {
   if (target.id === 'clipIn' || target.id === 'clipOut') {
     renderTimeline();
     refreshInspectorValues();
+  } else if (target.id === 'clipInNum') {
+    pushHistory();
+    clip.in = clamp(Number(target.value) || 0, 0, Math.max(0, clip.out - 0.05));
+    renderTimeline();
+    refreshInspectorValues();
+  } else if (target.id === 'clipOutNum') {
+    pushHistory();
+    clip.out = clamp(Number(target.value) || 0, clip.in + 0.05, clip.duration);
+    renderTimeline();
+    refreshInspectorValues();
   } else if (target.id === 'clipSpeed') {
+    pushHistory();
     clip.speed = clamp(Number(target.value) || 1, 0.5, 2);
     renderTimeline();
     refreshInspectorValues();
-    $('edSelection').textContent = `${clip.name} · ${fmtTime((clip.out - clip.in) / clip.speed)}`;
+    $('edVideo').playbackRate = clip.speed;
+    updatePreviewInfo(clip);
   } else if (target.id === 'clipFadeIn') {
+    pushHistory();
     clip.fadeIn = clamp(Number(target.value) || 0, 0, (clip.out - clip.in) / 2);
     target.value = String(Number(clip.fadeIn.toFixed(2)));
     syncTimelineClip(clip);
   } else if (target.id === 'clipFadeOut') {
+    pushHistory();
     clip.fadeOut = clamp(Number(target.value) || 0, 0, (clip.out - clip.in) / 2);
     target.value = String(Number(clip.fadeOut.toFixed(2)));
     syncTimelineClip(clip);
   } else if (target.id === 'clipMute') {
+    pushHistory();
     clip.mute = target.checked;
     $('edVideo').volume = clip.mute ? 0 : Math.min(1, clip.volume);
     const volume = $('clipVolume');
@@ -1119,6 +1551,11 @@ function onInspectorClick(event) {
   const trimButton = event.target.closest('[data-trim]');
   if (trimButton) {
     const action = trimButton.dataset.trim;
+    if (action === 'split') {
+      splitSelectedClip();
+      return;
+    }
+    pushHistory();
     if (action === 'reset') {
       clip.in = 0;
       clip.out = clip.duration;
@@ -1145,10 +1582,13 @@ function onInspectorClick(event) {
   const index = state.clips.findIndex((item) => item.id === clip.id);
 
   if (action === 'left' && index > 0) {
+    pushHistory();
     [state.clips[index - 1], state.clips[index]] = [state.clips[index], state.clips[index - 1]];
   } else if (action === 'right' && index < state.clips.length - 1) {
+    pushHistory();
     [state.clips[index + 1], state.clips[index]] = [state.clips[index], state.clips[index + 1]];
   } else if (action === 'duplicate') {
+    pushHistory();
     const copy = { ...clip, id: uid(), name: `${clip.name} (copia)` };
     state.clips.splice(index + 1, 0, copy);
     state.selectedId = copy.id;
@@ -1166,6 +1606,7 @@ function removeSelectedClip() {
   if (!state.clips.length) return;
   const index = state.clips.findIndex((clip) => clip.id === state.selectedId);
   if (index < 0) return;
+  pushHistory();
   state.clips.splice(index, 1);
   const next = state.clips[Math.min(index, state.clips.length - 1)];
   state.selectedId = next ? next.id : null;
@@ -1176,6 +1617,8 @@ function removeSelectedClip() {
 function clearProject() {
   if (!state.clips.length && !state.music) return;
   if (!window.confirm('Svuotare il montaggio? Le clip importate non verranno cancellate dal disco.')) return;
+  pushHistory();
+  stopPreview();
   state.clips = [];
   state.selectedId = null;
   state.music = null;
@@ -1237,6 +1680,7 @@ function onTimelineDrop(event) {
   const fromIndex = state.clips.findIndex((clip) => clip.id === sourceId);
   const toIndex = state.clips.findIndex((clip) => clip.id === card.dataset.clipId);
   if (fromIndex < 0 || toIndex < 0) return;
+  pushHistory();
   const [moved] = state.clips.splice(fromIndex, 1);
   state.clips.splice(toIndex, 0, moved);
   state.selectedId = moved.id;
@@ -1253,6 +1697,7 @@ async function addMusic() {
     if (!filePath) return;
     const info = await api.probeFile(filePath);
     if (!info.hasAudio) throw new Error('Il file non contiene audio');
+    pushHistory();
     state.music = {
       path: info.path,
       name: info.name,
@@ -1885,9 +2330,9 @@ function updateCompressRateFields() {
     $('compressQualityMode').value = 'bitrate';
   }
   const mode = $('compressQualityMode').value;
-  const qualityMode = mode === 'quality';
-  $('compressQualityField').hidden = !qualityMode;
-  $('compressRateFields').hidden = qualityMode;
+  $('compressQualityField').hidden = mode !== 'quality';
+  $('compressRateFields').hidden = !['bitrate', 'cbr', 'twopass'].includes(mode);
+  $('compressTargetFields').hidden = mode !== 'target';
   $('compressNvencAqField').hidden = !encoder || encoder.family !== 'nvenc';
 }
 
@@ -1945,6 +2390,9 @@ function syncCompressAudioCodecUi() {
     hint.textContent = `${state.compressAudioSelected.size} tracce mantenute senza ricodifica.`;
   } else {
     hint.textContent = `${state.compressAudioSelected.size} tracce ricodificate in ${codec.toUpperCase()}.`;
+  }
+  if ($('compressLoudnorm') && $('compressLoudnorm').checked) {
+    hint.textContent += ' Volume normalizzato a −16 LUFS.';
   }
 }
 
@@ -2010,9 +2458,40 @@ function renderCompressSubtitleTracks() {
     .join('');
 }
 
+function renderBurnSubtitleSelect() {
+  const select = $('compressBurnTrack');
+  if (!select) return;
+  const source = state.compressSource;
+  const tracks = source ? source.subtitleTracks.filter((track) => track.text) : [];
+  const previous = select.value;
+  if (!tracks.length) {
+    select.innerHTML = '<option value="">Nessun sottotitolo testuale</option>';
+    select.disabled = true;
+    if ($('compressBurnSubs').checked) {
+      $('compressBurnSubs').checked = false;
+      $('compressBurnTrackField').hidden = true;
+    }
+    return;
+  }
+  select.disabled = false;
+  select.innerHTML = tracks
+    .map(
+      (track) =>
+        `<option value="${track.index}">${esc(track.title || `Sottotitoli ${track.order + 1}`)}${track.language ? ` · ${esc(track.language)}` : ''}</option>`,
+    )
+    .join('');
+  if (tracks.some((track) => String(track.index) === previous)) select.value = previous;
+  else {
+    const preferred = tracks.find((track) => state.compressSubtitleSelected.has(track.index)) || tracks[0];
+    select.value = String(preferred.index);
+  }
+  $('compressBurnTrackField').hidden = !$('compressBurnSubs').checked;
+}
+
 function renderCompressTracks() {
   renderCompressAudioTracks();
   renderCompressSubtitleTracks();
+  renderBurnSubtitleSelect();
   populateCompressAudioCodecs();
   const container = compressContainer();
   const hint = $('compressSubtitleHint');
@@ -2159,7 +2638,9 @@ function updateCompressSummary() {
   rows.push(row('Contenitore', container.toUpperCase()));
   if (mode === 'quality') rows.push(row('Qualità', `${encoder.quality.label} ${quality}`));
   else if (mode === 'twopass') rows.push(row('Bitrate', `${bitrate} kbps · 2 passate`));
-  else rows.push(row('Bitrate', `${bitrate} kbps · ${mode.toUpperCase()}`));
+  else if (mode === 'target') {
+    rows.push(row('Dimensione', `${Math.round(Number($('compressTarget').value) || 0)} MB target`));
+  } else rows.push(row('Bitrate', `${bitrate} kbps · ${mode.toUpperCase()}`));
   if ($('compressPreset').value) rows.push(row('Preset', $('compressPreset').value));
 
   const resolution = $('compressResolution').value;
@@ -2192,24 +2673,346 @@ function updateCompressSummary() {
   const output = $('compressOutput').value.trim();
   rows.push(row('Output', output ? output.split(/[\\/]/).pop() : 'scelto al salvataggio'));
 
-  const estimate = estimateCompressSize();
-  if (estimate) rows.push(row('Stima', `~${fmtBytes(estimate)}`));
+  const planEstimate = estimateCompressPlan();
+  if (planEstimate && planEstimate.range.trimmed) {
+    rows.push(row('Taglio', `${fmtTime(planEstimate.range.start)} → ${fmtTime(planEstimate.range.end)}`));
+  }
+  if (planEstimate) rows.push(row('Video', `${Math.round(planEstimate.videoKbps)} kbps`));
+  if ($('compressLoudnorm') && $('compressLoudnorm').checked) rows.push(row('Volume', 'loudnorm −16 LUFS'));
+  if (planEstimate && planEstimate.burned) rows.push(row('Sottotitoli', 'bruciati nel video'));
+  if (planEstimate) rows.push(row('Stima', `~${fmtBytes(planEstimate.bytes)}`));
   if (state.compressBusy) rows.push(row('Stato', `${Math.round(state.compressPercent)}%`));
   box.innerHTML = rows.join('');
+  updateCompressEstimate();
+}
+
+/* ---------------------------- stima del risultato ---------------------------- */
+
+/**
+ * Bit per pixel per frame a qualità di riferimento (CRF/CQ 23) e 30 fps.
+ * Valori medi su contenuti reali: servono a stimare il peso senza dover
+ * codificare il video. Ogni 6 punti di CRF il bitrate raddoppia/dimezza.
+ */
+const COMPRESS_BPP_BASE = {
+  x264: 0.07,
+  x265: 0.045,
+  aom: 0.038,
+  vp9: 0.05,
+  nvenc: { h264: 0.08, hevc: 0.05, av1: 0.042 },
+  qsv: { h264: 0.078, hevc: 0.052, av1: 0.044 },
+  amf: { h264: 0.082, hevc: 0.055, av1: 0.046 },
+  videotoolbox: { h264: 0.085, hevc: 0.058 },
+};
+
+const COMPRESS_RESOLUTIONS = {
+  '2160p': 2160,
+  '1440p': 1440,
+  '1080p': 1080,
+  '720p': 720,
+  '480p': 480,
+  '360p': 360,
+};
+
+function compressSourceVideo() {
+  const source = state.compressSource;
+  if (!source || !source.videoTracks.length) return null;
+  const select = $('compressVideoTrack');
+  const index = select ? Number(select.value) : source.videoTracks[0].index;
+  return source.videoTracks.find((track) => track.index === index) || source.videoTracks[0];
+}
+
+function compressRange() {
+  const source = state.compressSource;
+  if (!source) return { start: 0, end: 0, duration: 0, total: 0, trimmed: false };
+  const total = Math.max(0, Number(source.duration) || 0);
+  const startInput = $('compressStart');
+  const endInput = $('compressEnd');
+  const start = clamp(Number(startInput && startInput.value) || 0, 0, Math.max(0, total - 0.1));
+  const rawEnd = Number(endInput && endInput.value) || 0;
+  const end = rawEnd > 0 ? clamp(rawEnd, start + 0.1, total) : total;
+  return {
+    start,
+    end,
+    duration: Math.max(0, end - start),
+    total,
+    trimmed: start > 0.05 || end < total - 0.05,
+  };
+}
+
+function compressGeometry(video) {
+  const srcW = Math.max(2, Math.round(Number(video.width) || 0));
+  const srcH = Math.max(2, Math.round(Number(video.height) || 0));
+  const srcFps = Number(video.fps) || 30;
+  const crop = {
+    top: Math.max(0, Math.round(Number($('compressCropTop').value) || 0)),
+    bottom: Math.max(0, Math.round(Number($('compressCropBottom').value) || 0)),
+    left: Math.max(0, Math.round(Number($('compressCropLeft').value) || 0)),
+    right: Math.max(0, Math.round(Number($('compressCropRight').value) || 0)),
+  };
+  const croppedW = Math.max(2, srcW - crop.left - crop.right);
+  const croppedH = Math.max(2, srcH - crop.top - crop.bottom);
+  let width = croppedW;
+  let height = croppedH;
+  const resolution = $('compressResolution').value;
+  const noUpscale = $('compressNoUpscale').checked;
+
+  if (resolution === 'custom') {
+    const wantedW = Math.round(Number($('compressWidth').value) || 0);
+    const wantedH = Math.round(Number($('compressHeight').value) || 0);
+    if (wantedW > 0 || wantedH > 0) {
+      let scale = wantedW > 0 && wantedH > 0 ? Math.min(wantedW / croppedW, wantedH / croppedH) : wantedW > 0 ? wantedW / croppedW : wantedH / croppedH;
+      if (noUpscale) scale = Math.min(1, scale);
+      width = Math.max(2, Math.round((croppedW * scale) / 2) * 2);
+      height = Math.max(2, Math.round((croppedH * scale) / 2) * 2);
+    }
+  } else if (COMPRESS_RESOLUTIONS[resolution]) {
+    const target = COMPRESS_RESOLUTIONS[resolution];
+    if (target < croppedH || !noUpscale) {
+      const scale = target / croppedH;
+      width = Math.max(2, Math.round((croppedW * scale) / 2) * 2);
+      height = Math.max(2, Math.round((croppedH * scale) / 2) * 2);
+    }
+  }
+
+  const fpsValue = $('compressFps').value;
+  const fps = fpsValue === 'source' ? srcFps : Number(fpsValue) || srcFps;
+  return {
+    srcW,
+    srcH,
+    srcFps,
+    width,
+    height,
+    fps,
+    crop,
+    cropped: crop.top + crop.bottom + crop.left + crop.right > 0,
+    scaled: width !== srcW || height !== srcH,
+  };
+}
+
+function encoderBitsPerPixel(encoder) {
+  if (!encoder) return 0.06;
+  const table = COMPRESS_BPP_BASE[encoder.family];
+  if (typeof table === 'number') return table;
+  if (table && table[encoder.codec]) return table[encoder.codec];
+  return 0.06;
+}
+
+function normalizeEncoderQuality(encoder, quality) {
+  if (!encoder) return quality;
+  if (encoder.family === 'videotoolbox') return 26.5 + (65 - quality) * 0.32;
+  if (encoder.family === 'vp9' || encoder.family === 'aom') return quality * (51 / 63);
+  return quality;
+}
+
+function compressBurnTrack() {
+  const source = state.compressSource;
+  const select = $('compressBurnTrack');
+  if (!source || !select || $('compressBurnSubs').hidden) return null;
+  if (!$('compressBurnSubs').checked) return null;
+  const index = Number(select.value);
+  return source.subtitleTracks.find((track) => track.index === index) || null;
+}
+
+function estimateCompressPlan() {
+  const source = state.compressSource;
+  if (!source || !state.compressCatalog) return null;
+  const encoder = currentCompressEncoder();
+  const video = compressSourceVideo();
+  if (!encoder || !video || !video.width || !video.height) return null;
+
+  const range = compressRange();
+  const duration = range.duration || Number(source.duration) || 0;
+  if (!duration) return null;
+  const geometry = compressGeometry(video);
+  const mode = $('compressQualityMode').value;
+  const merge = $('compressMerge').checked;
+  const codec = $('compressAudioCodec').value || 'copy';
+  const selectedTracks = source.audioTracks.filter((track) => state.compressAudioSelected.has(track.index));
+  const trackCount = merge && selectedTracks.length ? 1 : selectedTracks.length;
+  const trackKbps = (track) => (Number(track.bitrate) ? Number(track.bitrate) / 1000 : 160);
+
+  let audioKbps = 0;
+  if (selectedTracks.length) {
+    if (codec === 'copy') {
+      audioKbps = merge
+        ? Math.max(...selectedTracks.map(trackKbps))
+        : selectedTracks.reduce((sum, track) => sum + trackKbps(track), 0);
+    } else if (codec === 'flac') {
+      audioKbps = 700 * trackCount;
+    } else {
+      audioKbps = (Number($('compressAudioBitrate').value) || 128) * trackCount;
+    }
+  }
+
+  let videoKbps = 0;
+  let qualityFactor = 1;
+  let sourceKbps = 0;
+  let targetMB = null;
+
+  if (mode === 'bitrate' || mode === 'cbr' || mode === 'twopass') {
+    videoKbps = Math.max(50, Math.round(Number($('compressBitrate').value) || 0));
+  } else if (mode === 'target') {
+    targetMB = Math.max(1, Number($('compressTarget').value) || 1);
+    videoKbps = Math.max(50, Math.round((targetMB * 8 * 1024) / duration - audioKbps));
+  } else {
+    const sourceAudioKbps = source.audioTracks.reduce((sum, track) => sum + trackKbps(track), 0);
+    sourceKbps = Number(video.bitrate) ? Number(video.bitrate) / 1000 : 0;
+    if (!sourceKbps) {
+      const totalKbps = Number(source.bitrate)
+        ? Number(source.bitrate) / 1000
+        : (Number(source.size) * 8) / 1000 / Math.max(1, Number(source.duration) || duration);
+      sourceKbps = Math.max(150, totalKbps - sourceAudioKbps);
+    }
+    const quality = Math.round(Number($('compressQuality').value) || encoder.quality.default);
+    const normalized = normalizeEncoderQuality(encoder, quality);
+    qualityFactor = Math.pow(2, (23 - normalized) / 6);
+    const pixelRatio = clamp((geometry.width * geometry.height) / (geometry.srcW * geometry.srcH), 0.01, 4);
+    const fpsRatio = clamp(geometry.fps / geometry.srcFps, 0.1, 4);
+    let filterFactor = 1;
+    if ($('compressDenoise').value === 'light') filterFactor *= 0.9;
+    else if ($('compressDenoise').value === 'medium') filterFactor *= 0.8;
+    else if ($('compressDenoise').value === 'strong') filterFactor *= 0.68;
+    if ($('compressSharpen').value === 'light') filterFactor *= 1.05;
+    else if ($('compressSharpen').value === 'strong') filterFactor *= 1.1;
+    if ($('compressDeinterlace').value === 'force') filterFactor *= 1.08;
+
+    // Modello assoluto: bpp attesi per quell'encoder a quella qualità.
+    videoKbps = Math.round(
+      encoderBitsPerPixel(encoder) *
+        geometry.width *
+        geometry.height *
+        geometry.fps *
+        qualityFactor *
+        filterFactor /
+        1000,
+    );
+    // Se non stiamo ingrandendo, ricodificare non può inventare dettaglio:
+    // evito stime molto sopra il bitrate della sorgente.
+    if (pixelRatio <= 1.02 && fpsRatio <= 1.02) {
+      videoKbps = Math.min(videoKbps, Math.max(150, Math.round(sourceKbps * 1.5)));
+    }
+    videoKbps = clamp(videoKbps, 120, 120000);
+  }
+
+  const container = compressContainer();
+  const overhead = container === 'mkv' ? 1.012 : container === 'webm' ? 1.006 : 1.01;
+  let bytes = ((videoKbps + audioKbps) * 1000 * duration * overhead) / 8;
+
+  const burn = compressBurnTrack();
+  const subtitleCount = source.subtitleTracks.filter((track) => {
+    if (!state.compressSubtitleSelected.has(track.index)) return false;
+    if (burn && track.index === burn.index) return false;
+    return container === 'mkv' || COMPRESS_TEXT_SUBS.has(track.codec);
+  }).length;
+  if (subtitleCount) bytes += subtitleCount * 40 * 1024;
+
+  return {
+    bytes: Math.max(1024, Math.round(bytes)),
+    videoKbps,
+    audioKbps,
+    duration,
+    geometry,
+    mode,
+    range,
+    encoder,
+    container,
+    sourceKbps,
+    qualityFactor,
+    targetMB,
+    subtitleCount,
+    burned: Boolean(burn),
+  };
 }
 
 function estimateCompressSize() {
+  const estimate = estimateCompressPlan();
+  return estimate ? estimate.bytes : null;
+}
+
+function estimateSizeHtml(bytes) {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}<span class="estimate-unit">GB</span>`;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${Math.round(bytes / (1024 * 1024))}<span class="estimate-unit">MB</span>`;
+  }
+  return `${Math.max(1, Math.round(bytes / 1024))}<span class="estimate-unit">KB</span>`;
+}
+
+function updateCompressEstimate() {
+  const size = $('compressEstimateSize');
+  if (!size) return;
+  const estimate = estimateCompressPlan();
+  const sub = $('compressEstimateSub');
+  const details = $('compressEstimateDetails');
+  const fill = $('compressEstimateFill');
+  const badge = $('compressEstimateBadge');
+  const note = $('compressEstimateNote');
+
+  if (!estimate) {
+    size.textContent = '—';
+    sub.textContent = state.compressSource ? 'Completa le impostazioni per la stima.' : 'Scegli un video per vedere la stima.';
+    details.innerHTML = '';
+    if (fill) fill.style.width = '0%';
+    if (badge) badge.textContent = 'auto';
+    if (note) note.textContent = 'La stima si aggiorna a ogni modifica ed è indicativa (±15%).';
+    return;
+  }
+
   const source = state.compressSource;
-  const mode = $('compressQualityMode').value;
-  if (!source || mode === 'quality') return null;
-  const videoBitrate = Math.round(Number($('compressBitrate').value) || 0);
-  if (!videoBitrate || !source.duration) return null;
-  const merge = $('compressMerge').checked;
-  const audioCodec = $('compressAudioCodec').value;
-  const audioBitrate = Math.round(Number($('compressAudioBitrate').value) || 0);
-  const audioTracks = merge ? 1 : state.compressAudioSelected.size;
-  const audioKbps = audioCodec === 'copy' || audioCodec === 'flac' ? 0 : audioBitrate * audioTracks;
-  return Math.round(((videoBitrate + audioKbps) * 1000 * source.duration) / 8 * 1.02);
+  const original = Number(source.size) || 0;
+  size.innerHTML = estimateSizeHtml(estimate.bytes);
+  const percent = original ? (estimate.bytes / original) * 100 : 0;
+  const delta = original ? 1 - estimate.bytes / original : null;
+  const deltaLabel = delta == null ? '' : ` · ${delta >= 0 ? '−' : '+'}${Math.abs(Math.round(delta * 100))}% vs originale`;
+  const rangeLabel = `${fmtBytes(estimate.bytes * 0.85)} – ${fmtBytes(estimate.bytes * 1.15)}`;
+  sub.textContent = `${original ? `Originale ${fmtBytes(original)}` : 'Dimensione originale sconosciuta'}${deltaLabel} · intervallo ${rangeLabel}`;
+
+  const modeLabels = {
+    quality: `${estimate.encoder.quality.label} ${$('compressQuality').value}`,
+    bitrate: 'VBR',
+    cbr: 'CBR',
+    twopass: '2 passate',
+    target: `${estimate.targetMB} MB target`,
+  };
+  const rows = [
+    ['Video', `${Math.round(estimate.videoKbps / 100) / 10} Mbps`],
+    ['Audio', estimate.audioKbps ? `${Math.round(estimate.audioKbps)} kbps` : 'nessuno'],
+    ['Durata', fmtTime(estimate.duration)],
+    ['Risoluzione', `${estimate.geometry.width}×${estimate.geometry.height}`],
+    ['FPS', estimate.geometry.fps ? estimate.geometry.fps.toFixed(2).replace(/\.00$/, '') : 'originale'],
+    ['Controllo', modeLabels[estimate.mode] || estimate.mode],
+  ];
+  details.innerHTML = rows
+    .map(
+      ([label, value]) =>
+        `<div class="estimate-row"><span class="estimate-label">${esc(label)}</span><span class="estimate-value">${esc(value)}</span></div>`,
+    )
+    .join('');
+  if (fill) fill.style.width = `${clamp(percent, 1, 100).toFixed(1)}%`;
+  if (badge) badge.textContent = percent ? `${Math.round(percent)}%` : 'stima';
+  if (note) {
+    if (estimate.mode === 'target') {
+      note.textContent = `Il bitrate video (${Math.round(estimate.videoKbps)} kbps) è calcolato per rientrare in ${estimate.targetMB} MB${estimate.range.trimmed ? ' con il taglio scelto' : ''}.`;
+    } else if (estimate.mode === 'quality') {
+      note.textContent = `Stima su risoluzione, fps e qualità scelta (sorgente ${Math.round(estimate.sourceKbps)} kbps): l'errore tipico è ±15-20%.`;
+    } else {
+      note.textContent = 'Con un bitrate fisso il peso dipende quasi solo dalla durata: la stima è precisa entro pochi punti percentuali.';
+    }
+  }
+  const targetNote = $('compressTargetNote');
+  if (targetNote) {
+    targetNote.textContent =
+      estimate.mode === 'target'
+        ? `Bitrate video calcolato: ${Math.round(estimate.videoKbps)} kbps per ${estimate.targetMB} MB in ${fmtTime(estimate.duration)}.`
+        : 'Il bitrate video viene calcolato dalla durata per rientrare nella dimensione scelta.';
+  }
+  const rangeNote = $('compressRangeNote');
+  if (rangeNote) {
+    rangeNote.textContent = estimate.range.trimmed
+      ? `Compresso da ${fmtTime(estimate.range.start)} a ${fmtTime(estimate.range.end)} · ${fmtTime(estimate.range.duration)} su ${fmtTime(estimate.range.total)}.`
+      : `Nessun taglio: viene compresso tutto il video (${fmtTime(estimate.range.total)}).`;
+  }
 }
 
 function applyCompressOutputExtension() {
@@ -2246,6 +3049,10 @@ async function loadCompressSource(filePath) {
     state.compressSubtitleSelected = new Set(source.subtitleTracks.map((track) => track.index));
     state.compressGains = {};
     resetCompressForm();
+    const duration = Math.max(0, Number(source.duration) || 0);
+    $('compressStart').max = String(Math.max(0, duration - 0.1));
+    $('compressEnd').max = String(duration);
+    $('compressEnd').placeholder = `fine video (${fmtTime(duration)})`;
     renderCompressSource();
     applyCompressPreset('balanced');
     prefillCompressOutput();
@@ -2292,8 +3099,16 @@ function resetCompressForm() {
   $('compressAudioBitrate').value = '128';
   $('compressAudioChannels').value = 'source';
   $('compressAudioSampleRate').value = 'source';
+  $('compressLoudnorm').checked = false;
+  $('compressBurnSubs').checked = false;
+  $('compressBurnTrackField').hidden = true;
+  $('compressStart').value = '0';
+  $('compressEnd').value = '0';
+  $('compressTarget').value = '700';
+  $('compressTargetPreset').value = '';
   $('compressOutput').value = '';
   toggleCompressCustomSize();
+  updateCompressRateFields();
 }
 
 function toggleCompressCustomSize() {
@@ -2343,6 +3158,11 @@ function applyCompressPreset(name) {
   $('compressCropBottom').value = '0';
   $('compressCropLeft').value = '0';
   $('compressCropRight').value = '0';
+  $('compressStart').value = '0';
+  $('compressEnd').value = '0';
+  $('compressLoudnorm').checked = false;
+  $('compressBurnSubs').checked = false;
+  $('compressBurnTrackField').hidden = true;
   $('compressMerge').checked = Boolean(config.merge);
 
   if (state.compressSource) {
@@ -2387,6 +3207,8 @@ function collectCompressOptions() {
   const source = state.compressSource;
   const container = compressContainer();
   const mergeAudio = $('compressMerge').checked;
+  const range = compressRange();
+  const burnTrack = compressBurnTrack();
   let audioCodec = $('compressAudioCodec').value || 'copy';
   if (mergeAudio && audioCodec === 'copy') audioCodec = container === 'webm' ? 'libopus' : 'aac';
   const audioTracks = source
@@ -2412,6 +3234,12 @@ function collectCompressOptions() {
   return {
     container,
     videoEncoder: encoder ? encoder.id : 'libx264',
+    startTime: range.trimmed ? Number(range.start.toFixed(3)) : 0,
+    endTime: range.trimmed ? Number(range.end.toFixed(3)) : 0,
+    targetSizeMB: Math.max(1, Math.round(Number($('compressTarget').value) || 0)),
+    audioLoudnorm: Boolean($('compressLoudnorm') && $('compressLoudnorm').checked),
+    burnSubtitles: Boolean(burnTrack),
+    burnSubtitleTrack: burnTrack ? burnTrack.index : -1,
     hwaccel: Boolean($('compressHwAccel') && $('compressHwAccel').checked && encoder && encoder.hardware),
     videoTrack: Number($('compressVideoTrack').value),
     qualityMode,
@@ -2617,6 +3445,44 @@ async function pickCompressSource() {
     if (filePath) await loadCompressSource(filePath);
   } catch (error) {
     toast(errorMessage(error), 'err');
+  }
+}
+
+async function detectCompressCrop() {
+  const source = state.compressSource;
+  if (!source) {
+    toast('Scegli prima un video', 'err');
+    return;
+  }
+  const button = $('btnDetectCrop');
+  if (button) button.disabled = true;
+  toast('Analisi delle bande nere...');
+  try {
+    const video = compressSourceVideo();
+    const result = await api.detectCrop(
+      source.path,
+      source.duration,
+      video ? video.width : 0,
+      video ? video.height : 0,
+    );
+    const values = ['top', 'bottom', 'left', 'right'].map((side) =>
+      Math.max(0, Math.round(Number(result && result[side]) || 0)),
+    );
+    $('compressCropTop').value = String(values[0]);
+    $('compressCropBottom').value = String(values[1]);
+    $('compressCropLeft').value = String(values[2]);
+    $('compressCropRight').value = String(values[3]);
+    markCompressCustom();
+    updateCompressSummary();
+    if (!values.some(Boolean)) {
+      toast('Nessuna banda nera rilevata');
+    } else {
+      toast(`Bande nere: ${values[2]}/${values[3]} laterali, ${values[0]}/${values[1]} verticali`);
+    }
+  } catch (error) {
+    toast(errorMessage(error), 'err');
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -3164,7 +4030,52 @@ function bindCompressEvents() {
   });
   on('compressAudioCodec', 'change', () => {
     markCompressCustom();
+    // Con loudnorm il flusso audio non può restare in copia.
+    if ($('compressLoudnorm').checked && ($('compressAudioCodec').value || 'copy') === 'copy') {
+      setCompressAudioCodec(compressContainer() === 'webm' ? 'libopus' : 'aac');
+    }
     syncCompressAudioCodecUi();
+    updateCompressSummary();
+  });
+  on('btnCompressFullRange', 'click', () => {
+    $('compressStart').value = '0';
+    $('compressEnd').value = '0';
+    markCompressCustom();
+    updateCompressSummary();
+  });
+  on('compressTargetPreset', 'change', () => {
+    const value = Number($('compressTargetPreset').value);
+    if (!value) return;
+    $('compressTarget').value = String(value);
+    markCompressCustom();
+    updateCompressSummary();
+  });
+  on('btnDetectCrop', 'click', detectCompressCrop);
+  on('compressLoudnorm', 'change', () => {
+    markCompressCustom();
+    if ($('compressLoudnorm').checked) {
+      if (($('compressAudioCodec').value || 'copy') === 'copy') {
+        setCompressAudioCodec(compressContainer() === 'webm' ? 'libopus' : 'aac');
+      }
+      if (state.compressAudioSelected.size > 1 && !$('compressMerge').checked) {
+        $('compressMerge').checked = true;
+        renderCompressAudioTracks();
+      }
+    }
+    syncCompressAudioCodecUi();
+    updateCompressSummary();
+  });
+  on('compressBurnSubs', 'change', () => {
+    markCompressCustom();
+    renderBurnSubtitleSelect();
+    updateCompressSummary();
+  });
+  on('compressBurnTrack', 'change', () => {
+    markCompressCustom();
+    updateCompressSummary();
+  });
+  on('compressVideoTrack', 'change', () => {
+    markCompressCustom();
     updateCompressSummary();
   });
   on('btnBrowseCompressOutput', 'click', browseCompressOutput);

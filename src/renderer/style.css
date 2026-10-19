@@ -1666,3 +1666,162 @@ body.dragging .source-card {
 #btnCheckUpdate:disabled { opacity: 0.45; cursor: default; }
 .panel-badge.new { color: #000; background: #fff; border-color: #fff; font-weight: 700; }
 .panel-badge.err { color: #ddd; border-color: #555; }
+
+/* =========================================
+   DRAG & DROP OVERLAY
+   ========================================= */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+body.dragging .drop-overlay { display: flex; }
+.drop-overlay-card {
+  border: 1px dashed rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius);
+  padding: 28px 34px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 60px rgba(255, 255, 255, 0.08);
+}
+.drop-overlay-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.drop-overlay-sub {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text3);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* =========================================
+   EDITOR: UNDO/REDO, TEMPI ESATTI, SEQUENZA
+   ========================================= */
+.editor-actions .btn-icon.icon-only {
+  padding: 7px 11px;
+  font-size: 14px;
+  line-height: 1;
+  min-width: 34px;
+}
+.editor-actions .btn-icon:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.btn-play-sequence {
+  color: #000;
+  background: #fff;
+  border-color: #fff;
+  font-weight: 700;
+}
+.btn-play-sequence:hover { background: #e8e8e8; color: #000; }
+.btn-play-sequence.playing { background: #c9c9c9; }
+.trim-num {
+  margin-top: 6px;
+  width: 100%;
+  max-width: 120px;
+  padding: 5px 7px;
+  font-size: 10px;
+}
+.trim-quick .btn-sm { flex: 1 1 auto; }
+
+/* =========================================
+   COMPRIMI: STIMA RISULTATO
+   ========================================= */
+.estimate-panel { margin-bottom: 14px; }
+.estimate-box {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 14px;
+}
+.estimate-size {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: #fff;
+}
+.estimate-size .estimate-unit {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-left: 4px;
+}
+.estimate-sub {
+  margin-top: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text2);
+  line-height: 1.6;
+}
+.estimate-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: #1a1a1a;
+  overflow: hidden;
+  margin: 12px 0 10px;
+}
+.estimate-fill {
+  height: 100%;
+  background: #fff;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+}
+.estimate-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+}
+.estimate-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.estimate-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text3);
+}
+.estimate-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.estimate-note {
+  margin-top: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  line-height: 1.6;
+  color: var(--text3);
+  border-left: 2px solid #2a2a2a;
+  padding-left: 8px;
+}
+.estimate-panel.warn .estimate-size { color: #ddd; }
+.section-title.inner .btn-sm {
+  float: right;
+  margin-top: -4px;
+  text-transform: none;
+  font-size: 9px;
+  padding: 3px 8px;
+}
+#compressRangeNote { margin-top: 2px; }
+#compressTargetFields { margin-top: 4px; }
+#compressBurnTrackField { margin-top: 8px; }

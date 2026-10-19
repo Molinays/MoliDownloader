@@ -31,18 +31,33 @@ contextBridge.exposeInMainWorld('moli', {
   pickCompressSource: () => ipcRenderer.invoke('dialog:pickCompressSource'),
   pickCompressOutput: (payload) => ipcRenderer.invoke('dialog:pickCompressOutput', payload),
   getDroppedPaths: (files) => {
+    let list = [];
     try {
-      return Array.from(files)
-        .map((file) => {
-          try {
-            return webUtils.getPathForFile(file);
-          } catch {
-            return '';
-          }
-        })
-        .filter(Boolean);
+      list = Array.from(files || []);
     } catch {
-      return [];
+      list = [];
+    }
+    const paths = [];
+    for (const file of list) {
+      let resolved = '';
+      try {
+        resolved = webUtils.getPathForFile(file) || '';
+      } catch {
+        resolved = '';
+      }
+      // Fallback per le build che espongono ancora il vecchio attributo path.
+      if (!resolved && file && typeof file.path === 'string') resolved = file.path;
+      if (resolved && !paths.includes(resolved)) paths.push(resolved);
+    }
+    return paths;
+  },
+  pathForFile: (file) => {
+    try {
+      const resolved = webUtils.getPathForFile(file) || '';
+      if (resolved) return resolved;
+      return file && typeof file.path === 'string' ? file.path : '';
+    } catch {
+      return '';
     }
   },
 
@@ -60,6 +75,8 @@ contextBridge.exposeInMainWorld('moli', {
   compressCatalog: () => ipcRenderer.invoke('compress:catalog'),
   scanGpu: (force) => ipcRenderer.invoke('compress:scan', force),
   probeCompress: (filePath) => ipcRenderer.invoke('compress:probe', filePath),
+  detectCrop: (filePath, duration, width, height) =>
+    ipcRenderer.invoke('compress:detectCrop', { filePath, duration, width, height }),
   startCompress: (payload) => ipcRenderer.invoke('compress:start', payload),
   cancelCompress: () => ipcRenderer.invoke('compress:cancel'),
 

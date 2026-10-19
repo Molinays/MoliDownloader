@@ -361,6 +361,17 @@ function registerIpc() {
     return compressCore.probeSource(tools.ffprobe.path, filePath);
   });
 
+  ipcMain.handle('compress:detectCrop', async (_event, payload) => {
+    const tools = binaries.getBinaries();
+    if (!tools.ffmpeg.path) throw new Error('FFmpeg non trovato');
+    const data = payload || {};
+    return compressCore.detectCrop(tools.ffmpeg.path, String(data.filePath || ''), {
+      duration: Number(data.duration) || 0,
+      width: Number(data.width) || 0,
+      height: Number(data.height) || 0,
+    });
+  });
+
   ipcMain.handle('compress:start', async (event, payload) => {
     if (compressing) throw new Error('Una compressione è già in corso');
     const sourcePath = payload && payload.sourcePath;

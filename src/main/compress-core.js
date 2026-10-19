@@ -320,7 +320,23 @@ function resolveScale(source, options) {
   return `scale=-2:${targetHeight}:flags=lanczos`;
 }
 
-function buildVideoFilters(source, options) {
+function escapeFilterValue(value) {
+  return String(value)
+    .replace(/\\/g, '/')
+    .replace(/:/g, '\\:')
+    .replace(/'/g, "\\'")
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
+}
+
+function burnSubtitleFilter(sourcePath, track) {
+  if (!track) return '';
+  return `subtitles='${escapeFilterValue(sourcePath)}':si=${Math.max(0, Number(track.order) || 0)}`;
+}
+
+function buildVideoFilters(source, options, burnTrack) {
   const filters = [];
   const crop = options.crop || {};
   const top = safeInt(crop.top, 0, 10000, 0);
@@ -353,6 +369,10 @@ function buildVideoFilters(source, options) {
 
   if (options.sharpen === 'light') filters.push('unsharp=5:5:0.8:5:5:0.0');
   else if (options.sharpen === 'strong') filters.push('unsharp=5:5:1.2:5:5:0.0');
+
+  // I sottotitoli si bruciano dopo il ridimensionamento, così la dimensione
+  // del testo resta coerente con l'output.
+  if (burnTrack) filters.push(burnSubtitleFilter(source.path, burnTrack));
 
   return filters.join(',');
 }
@@ -502,6 +522,16 @@ function buildAudioSelection(source, options, container) {
     throw new Error('Per unire le tracce audio scegli un codec di codifica, non "Copia"');
   }
 
+  let loudnorm = Boolean(options.audioLoudnorm);
+  if (loudnorm && codec === 'copy') {
+    // loudnorm è un filtro: serve ricodificare, non si può copiare il flusso.
+    codec = container === 'webm' ? 'libopus' : 'aac';
+  }
+  if (loudnorm && !merge && tracks.length > 1) {
+    loudnorm = false;
+    warnings.push('Normalizzazione volume saltata: con più tracce audio attiva “Unisci le tracce”.');
+  }
+
   const bitrate = safeInt(options.audioBitrate, 8, 1024, 128);
   if (codec !== 'copy' && codec !== 'flac' && !bitrate) {
     throw new Error('Inserisci un bitrate audio valido');
@@ -526,7 +556,7 @@ function buildAudioSelection(source, options, container) {
     gains[track.index] = clamp(value, 0, 2);
   }
 
-  return { tracks, merge, codec, bitrate, gains, warnings };
+  return { tracks, merge, codec, bitrate, gains, loudnorm, warnings };
 }
 
 function channelsValue(options) {
@@ -634,10 +664,18 @@ function buildCompressPlan({ source, options, outputPath }) {
   const videoTrack = source.videoTracks.find((track) => track.index === videoTrackIndex);
   if (!videoTrack) throw new Error('Traccia video non trovata');
 
+  const totalDuration = Math.max(0, num(source.duration));
+  const rangeStart = clamp(num(options.startTime), 0, Math.max(0, totalDuration - 0.1));
+  const rangeEndRaw = num(options.endTime);
+  const rangeEnd =
+    rangeEndRaw > 0 ? clamp(rangeEndRaw, rangeStart + 0.1, totalDuration || rangeEndRaw) : totalDuration;
+  const duration = Math.max(0.1, rangeEnd > rangeStart ? rangeEnd - rangeStart : totalDuration || 0.1);
+  const useRange = rangeStart > 0.001 || duration < totalDuration - 0.001;
+
   const selectedOptions = {
     ...options,
     container,
-    qualityMode: ['quality', 'bitrate', 'cbr', 'twopass'].includes(options.qualityMode)
+    qualityMode: ['quality', 'bitrate', 'cbr', 'twopass', 'target'].includes(options.qualityMode)
       ? options.qualityMode
       : 'quality',
   };
@@ -650,10 +688,56 @@ function buildCompressPlan({ source, options, outputPath }) {
   const warnings = [];
   const audio = buildAudioSelection(source, selectedOptions, container);
   warnings.push(...audio.warnings);
-  const subtitles = buildSubtitleSelection(source, selectedOptions, container);
+
+  const burnIndex = selectedOptions.burnSubtitles ? Number(selectedOptions.burnSubtitleTrack) : NaN;
+  const burnTrack = Number.isFinite(burnIndex)
+    ? source.subtitleTracks.find((track) => track.index === burnIndex && track.text) || null
+    : null;
+  if (selectedOptions.burnSubtitles && !burnTrack) {
+    warnings.push('Sottotitoli da bruciare non trovati: nessuna traccia testuale selezionata.');
+  }
+
+  const subtitleOptions = {
+    ...selectedOptions,
+    subtitleTracks: (Array.isArray(selectedOptions.subtitleTracks)
+      ? selectedOptions.subtitleTracks
+      : source.subtitleTracks.map((track) => track.index)
+    ).filter((index) => !burnTrack || Number(index) !== burnTrack.index),
+  };
+  const subtitles = buildSubtitleSelection(source, subtitleOptions, container);
   warnings.push(...subtitles.warnings);
-  const videoFilters = buildVideoFilters(source, selectedOptions);
+
+  if (selectedOptions.qualityMode === 'target') {
+    const targetMB = clamp(num(selectedOptions.targetSizeMB, 0), 1, 1024 * 1024);
+    const audioKbps = audio.tracks.length
+      ? (audio.merge ? 1 : audio.tracks.length) *
+        (audio.codec === 'copy'
+          ? Math.round(
+              audio.tracks.reduce((sum, track) => sum + (num(track.bitrate) || 160000), 0) /
+                1000 /
+                (audio.merge ? audio.tracks.length : 1),
+            )
+          : audio.codec === 'flac'
+            ? 700
+            : Math.max(8, num(selectedOptions.audioBitrate, 128)))
+      : 0;
+    const totalKbps = (targetMB * 8 * 1024) / duration;
+    selectedOptions.bitrate = Math.max(50, Math.round(totalKbps - audioKbps));
+    // A due passate il bitrate viene centrato sul target; gli encoder hardware
+    // lavorano in una sola passata e restano più approssimativi.
+    selectedOptions.qualityMode = encoderMeta && encoderMeta.twoPass ? 'twopass' : 'bitrate';
+  }
+
+  const videoFilters = buildVideoFilters(source, selectedOptions, burnTrack);
   const { args: videoArgs, encoder } = buildVideoArgs(encoderId, selectedOptions);
+
+  // Il filtro subtitles rilegge il file con i timestamp originali: con un
+  // taglio serve la ricerca sull'output, altrimenti i sottotitoli slittano.
+  const seekArgs = burnTrack && rangeStart > 0.001 ? [] : rangeStart > 0.001 ? ['-ss', fixed(rangeStart, 3)] : [];
+  const trimArgs = useRange ? ['-t', fixed(duration, 3)] : [];
+  const afterInputArgs = [];
+  if (burnTrack && rangeStart > 0.001) afterInputArgs.push('-ss', fixed(rangeStart, 3));
+  afterInputArgs.push(...trimArgs);
 
   const useHwAccel = selectedOptions.hwaccel !== false && Boolean(encoder.hardware);
   // Con NVENC e nessun filtro video le frame restano sulla GPU (CUDA): evita il
@@ -677,8 +761,10 @@ function buildCompressPlan({ source, options, outputPath }) {
         ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda']
         : ['-hwaccel', 'auto']
       : []),
+    ...seekArgs,
     '-i',
     source.path,
+    ...afterInputArgs,
     '-progress',
     'pipe:1',
     '-stats_period',
@@ -702,7 +788,7 @@ function buildCompressPlan({ source, options, outputPath }) {
     });
     const labels = audio.tracks.map((_, index) => `[a${index}]`).join('');
     chains.push(
-      `${labels}amix=inputs=${audio.tracks.length}:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`,
+      `${labels}amix=inputs=${audio.tracks.length}:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95${audio.loudnorm ? ',loudnorm=I=-16:TP=-1.5:LRA=11' : ''}[aout]`,
     );
     filterComplex = chains.join(';');
     finalArgs.push('-filter_complex', filterComplex);
@@ -712,6 +798,9 @@ function buildCompressPlan({ source, options, outputPath }) {
     if (videoFilters) finalArgs.push('-vf', videoFilters);
     finalArgs.push('-map', `0:${videoTrack.index}`);
     for (const track of audio.tracks) finalArgs.push('-map', `0:${track.index}`);
+    if (audio.loudnorm && audio.tracks.length === 1) {
+      finalArgs.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
+    }
   }
 
   finalArgs.push(...videoArgs);
@@ -743,7 +832,7 @@ function buildCompressPlan({ source, options, outputPath }) {
     finalArgs.push('-movflags', '+faststart');
   }
 
-  const estimate = estimatePlan(source, selectedOptions, audio, encoder);
+  const estimate = estimatePlan({ ...source, duration }, selectedOptions, audio, encoder);
   finalArgs.push(outputPath);
 
   return {
@@ -760,12 +849,102 @@ function buildCompressPlan({ source, options, outputPath }) {
     subtitles,
     warnings,
     estimate,
-    duration: source.duration,
+    duration,
+    startSeconds: burnTrack && rangeStart > 0.001 ? rangeStart : 0,
+    rangeStart,
+    rangeEnd,
+    seekArgs,
+    trimArgs,
+    afterInputArgs,
+    burned: Boolean(burnTrack),
+    loudnorm: audio.loudnorm,
     filterComplex,
     qualityMode: selectedOptions.qualityMode,
     hwaccel: useHwAccel,
     hwaccelMode: cudaFastPath ? 'cuda' : useHwAccel ? 'auto' : 'software',
   };
+}
+
+function detectCrop(ffmpegPath, sourcePath, options = {}) {
+  return new Promise((resolve, reject) => {
+    if (!ffmpegPath) {
+      reject(new Error('FFmpeg non trovato'));
+      return;
+    }
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+      reject(new Error('Video non trovato'));
+      return;
+    }
+    const total = Math.max(0, num(options.duration));
+    const sample = clamp(total ? Math.min(20, Math.max(6, total / 10)) : 8, 3, 30);
+    const start = total > sample * 2 ? Math.max(0, total / 2 - sample / 2) : 0;
+    const args = [
+      '-hide_banner',
+      '-nostdin',
+      '-loglevel',
+      'info',
+      ...(start > 0 ? ['-ss', fixed(start, 3)] : []),
+      '-t',
+      fixed(sample, 3),
+      '-i',
+      sourcePath,
+      '-vf',
+      'cropdetect=24:2:0',
+      '-f',
+      'null',
+      DEV_NULL,
+    ];
+
+    let child;
+    try {
+      child = spawn(ffmpegPath, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    let stderr = '';
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+      if (stderr.length > 200000) stderr = stderr.slice(-100000);
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      const matches = [...stderr.matchAll(/crop=(\d+):(\d+):(\d+):(\d+)/g)];
+      const last = matches[matches.length - 1];
+      if (!last) {
+        if (code !== 0) reject(new Error(`Analisi non riuscita (codice ${code})`));
+        else resolve({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 });
+        return;
+      }
+      const width = Number(last[1]);
+      const height = Number(last[2]);
+      const left = Number(last[3]);
+      const top = Number(last[4]);
+      let frameW = safeInt(options.width, 0, 20000, 0);
+      let frameH = safeInt(options.height, 0, 20000, 0);
+      if (!frameW || !frameH) {
+        const streamLine = stderr.match(/Video:.*?(\d{2,5})x(\d{2,5})/);
+        if (streamLine) {
+          frameW = Number(streamLine[1]);
+          frameH = Number(streamLine[2]);
+        }
+      }
+      if (width < 32 || height < 32) {
+        resolve({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 });
+        return;
+      }
+      resolve({
+        left,
+        top,
+        width,
+        height,
+        right: frameW ? Math.max(0, frameW - left - width) : 0,
+        bottom: frameH ? Math.max(0, frameH - top - height) : 0,
+        frameWidth: frameW,
+        frameHeight: frameH,
+      });
+    });
+  });
 }
 
 function killTree(child) {
@@ -799,7 +978,7 @@ function killTree(child) {
 function parseProgressLine(line, plan, pass, range, onProgress) {
   const match = line.match(/^(out_time_us|out_time_ms)=(\d+)/);
   if (!match) return;
-  const seconds = Number(match[2]) / 1e6;
+  const seconds = Math.max(0, Number(match[2]) / 1e6 - (plan.startSeconds || 0));
   const total = plan.duration || 1;
   const local = clamp(seconds / total, 0, 0.999);
   const progress = range.start + local * (range.end - range.start);
@@ -916,8 +1095,10 @@ function compressVideo({ ffmpegPath, ffprobePath, sourcePath, options, outputPat
           '-loglevel',
           'warning',
           '-y',
+          ...plan.seekArgs,
           '-i',
           sourcePath,
+          ...plan.trimArgs,
           '-progress',
           'pipe:1',
           '-stats_period',
@@ -1087,6 +1268,10 @@ function compressVideo({ ffmpegPath, ffprobePath, sourcePath, options, outputPat
         audioTracks: plan.audio.tracks.length,
         mergedAudio: plan.audio.merge,
         subtitleTracks: plan.subtitles.tracks.length,
+        burnedSubtitles: plan.burned,
+        loudnorm: plan.loudnorm,
+        rangeStart: plan.rangeStart,
+        rangeEnd: plan.rangeEnd,
         warnings,
         hwaccel: usedHwaccel,
         hwaccelMode: usedHwaccel ? plan.hwaccelMode : 'software',
@@ -1129,5 +1314,6 @@ module.exports = {
   buildVideoFilters,
   resolvePixelFormat,
   estimatePlan,
+  detectCrop,
   TEXT_SUBTITLE_CODECS,
 };

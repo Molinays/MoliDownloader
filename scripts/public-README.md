@@ -18,8 +18,9 @@ Vai alla pagina dell'ultima versione:
 ## Funzioni principali
 
 - Download video fino a 4K e audio in MP3, M4A, Opus, FLAC e WAV, con playlist, sottotitoli, cookie, proxy e SponsorBlock.
-- Editor: taglio, riordino, velocità, volume e fade per clip, traccia musicale, export MP4/MKV/M4A.
-- Compressione in stile HandBrake: x264, x265, VP9, AV1 e encoder GPU NVENC, Quick Sync, AMF e VideoToolbox, con merge delle tracce audio e conversione sottotitoli.
+- Editor: taglio, divisione, riordino, velocità, volume e fade per clip, annulla/ripeti, anteprima dell'intero montaggio, traccia musicale ed export MP4/MKV/M4A.
+- Compressione in stile HandBrake: x264, x265, VP9, AV1 e encoder GPU NVENC, Quick Sync, AMF e VideoToolbox, con merge delle tracce audio, taglio, crop automatico, normalizzazione volume e burn-in dei sottotitoli.
+- Stima dei MB finali aggiornata a ogni parametro e modalità "dimensione target" per far rientrare il video in un peso preciso.
 - Scheda Info con sistema, GPU rilevate, test reali degli encoder e suggerimenti automatici.
 - Aggiornamenti automatici dalla versione installata.
 

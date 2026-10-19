@@ -1,4 +1,4 @@
-# MoliDowloader 3.0.1
+# MoliDowloader 3.1.0
 
 App desktop **Electron** che unisce un downloader universale, un piccolo editor video/audio e un compressore in stile HandBrake, tutti basati su **FFmpeg**.
 
@@ -21,11 +21,13 @@ App desktop **Electron** che unisce un downloader universale, un piccolo editor 
 ### Editor
 - Import di clip video/audio o drag & drop nella finestra.
 - Timeline con riordino drag & drop, duplicazione e rimozione.
-- Trim di ogni clip con cursori In/Out, waveform e pulsanti "IN/OUT = cursore".
+- Trim di ogni clip con cursori In/Out, waveform, campi numerici al centesimo e pulsanti "IN/OUT = cursore".
+- **Dividi** la clip al cursore (tasto S) e **annulla/ripeti** le modifiche (Ctrl+Z / Ctrl+Shift+Z), con pulsanti nella barra alta.
 - Audio per clip: volume 0–200%, muto, fade in/out.
 - Velocità 0.5x–2x con audio sincronizzato.
 - Traccia musicale sotto il montaggio: volume, fade e loop.
-- Anteprima della clip selezionata e della sola selezione.
+- **Anteprima del montaggio intero** in sequenza (Spazio), con avanzamento automatico da una clip all'altra e musica sincronizzata; resta anche l'anteprima della sola selezione.
+- Scorciatoie: Spazio play/pausa, frecce per spostarsi, Shift+frecce ±5 s, S dividi, Canc rimuovi, Ctrl+Z/Ctrl+Shift+Z annulla/ripeti.
 - Export: MP4 (H.264/AAC), MKV oppure M4A solo audio.
 - Risoluzione: originale, 1080p, 720p, 9:16 (Reels/TikTok), 1:1. Per 9:16 e 1:1 il frame viene riempito con crop centrale, senza bande nere.
 - FPS originali/24/30/60 e qualità CRF.
@@ -44,6 +46,11 @@ App desktop **Electron** che unisce un downloader universale, un piccolo editor 
 - Sottotitoli: selezione delle tracce; in MKV vengono copiati (anche bitmap/PGS), in MP4/WebM i testuali vengono convertiti in `mov_text`/WebVTT.
 - Capitoli, metadata, allegati/font per MKV e faststart MP4 opzionali.
 - Preset pronti: massima compressione, bilanciato, alta qualità, social 1080p, archivio, GPU veloce e WebM leggero, tutti poi personalizzabili.
+- **Stima del peso finale in tempo reale**: ogni parametro (encoder, qualità, bitrate, risoluzione, fps, crop, filtri, audio, durata) aggiorna i MB attesi, con intervallo, percentuale rispetto all'originale e bitrate calcolato.
+- **Dimensione target**: scegli i MB finali e l'app ricava il bitrate video; con x264/x265 usa due passate per centrare il risultato.
+- **Taglio**: comprimi solo da un secondo all'altro, con durata e stima ricalcolate.
+- **Crop automatico**: rileva le bande nere con `cropdetect` e compila i quattro lati.
+- **Normalizzazione volume** (loudnorm −16 LUFS) e **burn-in dei sottotitoli** testuali nel video.
 - Progresso con percentuale, tempo, velocità e passata, annullamento sicuro e file temporanei rimossi in caso di errore.
 
 ### Aggiornamenti
@@ -144,7 +151,7 @@ release/       artefatti di build (ignorata da git)
 - I file temporanei di anteprima (thumbnail, waveform) sono in `%APPDATA%/molidowloader/cache`.
 - Il montaggio esportato non applica ancora transizioni, testi o overlay: il focus è su taglio, audio e concatenazione.
 - Nella sezione Comprimi il 2-pass è disponibile solo per x264/x265; gli encoder hardware privilegiano velocità e non lo supportano.
-- Il burn-in dei sottotitoli nel video non è previsto: le tracce vengono mantenute o convertite nel contenitore scelto.
+- Il burn-in riguarda i sottotitoli testuali (SRT/ASS/WebVTT); quelli bitmap (PGS/DVD) restano disponibili solo come tracce in MKV.
 - La decodifica GPU è pensata per NVENC (percorso CUDA). Con Quick Sync, AMF o VideoToolbox viene usato `-hwaccel auto` e resta il fallback software automatico.
 - I link gestiti sono quelli supportati da yt-dlp. Per i siti con player dedicato il resolver legge la pagina pubblica del player e ne estrae il flusso HLS con i parametri che il player stesso espone: non decifra DRM né aggira abbonamenti.
 - L'auto-update è supportato dalla versione installata con NSIS. Il portable non può sostituirsi da solo: va scaricato manualmente dalla release.

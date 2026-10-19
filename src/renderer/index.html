@@ -228,8 +228,10 @@
     <main id="viewEditor" class="editor-view" hidden>
       <div class="editor-topbar">
         <div class="editor-actions">
-          <button id="btnImport" class="btn-icon">+ Clip</button>
+          <button id="btnImport" class="btn-icon" title="Importa video o audio (o trascinali nella finestra)">+ Clip</button>
           <button id="btnAddMusic" class="btn-icon">+ Musica</button>
+          <button id="btnUndo" class="btn-icon icon-only" title="Annulla (Ctrl+Z)" disabled>↶</button>
+          <button id="btnRedo" class="btn-icon icon-only" title="Ripeti (Ctrl+Shift+Z)" disabled>↷</button>
           <button id="btnClearProject" class="btn-icon">Svuota</button>
         </div>
         <div class="project-name">
@@ -244,6 +246,7 @@
         <section class="preview-col">
           <div class="preview-box" id="previewBox">
             <video id="edVideo" playsinline controls></video>
+            <audio id="edMusic" preload="auto" hidden></audio>
             <div class="preview-empty" id="previewEmpty">
               <div>Importa clip o trascina qui i file</div>
               <div class="preview-empty-sub">Taglia, sistema l'audio e monta con FFmpeg</div>
@@ -252,7 +255,9 @@
           </div>
 
           <div class="transport">
-            <button id="btnPreviewPlay" class="btn-sm">Anteprima selezione</button>
+            <button id="btnPreviewPlay" class="btn-sm btn-play-sequence">▶ Montaggio</button>
+            <button id="btnPreviewClip" class="btn-sm">Selezione</button>
+            <button id="btnPreviewStop" class="btn-sm">Stop</button>
             <span id="edTime" class="mono">00:00.0 / 00:00.0</span>
             <span id="edSelection" class="muted">Nessuna clip selezionata</span>
           </div>
@@ -265,7 +270,7 @@
             <div id="timeline" class="timeline">
               <div class="timeline-empty">La timeline è vuota — importa una clip per iniziare</div>
             </div>
-            <div class="timeline-hint">Trascina le clip per riordinarle · seleziona una clip per tagliarla</div>
+            <div class="timeline-hint">Trascina le clip per riordinarle · Spazio: anteprima montaggio · S: dividi · Ctrl+Z: annulla</div>
           </div>
         </section>
 
@@ -417,12 +422,34 @@
                 <option value="bitrate">Bitrate variabile (VBR)</option>
                 <option value="cbr">Bitrate costante (CBR)</option>
                 <option value="twopass">2 passate (bitrate)</option>
+                <option value="target">Dimensione target (MB)</option>
               </select>
             </div>
             <div class="field" id="compressQualityField">
               <label for="compressQuality"><span id="compressQualityLabel">CRF</span> <span id="compressQualityValue" class="range-value">24</span></label>
               <input id="compressQuality" type="range" min="0" max="51" step="1" value="24">
               <input id="compressQualityNum" type="number" min="0" max="51" step="1" value="24">
+            </div>
+          </div>
+
+          <div class="settings-grid compact" id="compressTargetFields" hidden>
+            <div class="field">
+              <label for="compressTarget">Dimensione finale (MB)</label>
+              <input id="compressTarget" type="number" min="1" step="1" value="700">
+            </div>
+            <div class="field">
+              <label for="compressTargetPreset">Scorciatoie</label>
+              <select id="compressTargetPreset">
+                <option value="">Personalizzata</option>
+                <option value="50">50 MB · clip social</option>
+                <option value="100">100 MB · condivisione rapida</option>
+                <option value="250">250 MB · buona qualità</option>
+                <option value="700">700 MB · CD</option>
+                <option value="2000">2 GB · archivio</option>
+              </select>
+            </div>
+            <div class="field full">
+              <div id="compressTargetNote" class="encoder-note">Il bitrate video viene calcolato dalla durata per rientrare nella dimensione scelta.</div>
             </div>
           </div>
 
@@ -508,6 +535,24 @@
 
         <div class="panel-section compress-panel">
           <div class="panel-title"><h3>Video</h3><span class="panel-badge">filtri</span></div>
+          <div class="section-title inner">Taglio</div>
+          <div class="settings-grid compact">
+            <div class="field">
+              <label for="compressStart">Da (secondi)</label>
+              <input id="compressStart" type="number" min="0" step="0.1" value="0">
+            </div>
+            <div class="field">
+              <label for="compressEnd">A (secondi)</label>
+              <input id="compressEnd" type="number" min="0" step="0.1" value="0" placeholder="fine video">
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="btnCompressFullRange" class="btn-sm">Tutto il video</button>
+            </div>
+            <div class="field full">
+              <div id="compressRangeNote" class="encoder-note">Nessun taglio: viene compresso tutto il video.</div>
+            </div>
+          </div>
           <div class="settings-grid compact">
             <div class="field">
               <label for="compressVideoTrack">Traccia video</label>
@@ -575,7 +620,7 @@
             <span class="toggle-label">Non ingrandire oltre la risoluzione originale</span>
             <span class="toggle"><input id="compressNoUpscale" type="checkbox" checked><span class="slider"></span></span>
           </label>
-          <div class="section-title inner">Crop manuale (px)</div>
+          <div class="section-title inner">Crop manuale (px) <button id="btnDetectCrop" class="btn-sm">Rileva bande nere</button></div>
           <div class="settings-grid compact crop-grid">
             <div class="field"><label for="compressCropTop">Alto</label><input id="compressCropTop" type="number" min="0" step="2" value="0"></div>
             <div class="field"><label for="compressCropBottom">Basso</label><input id="compressCropBottom" type="number" min="0" step="2" value="0"></div>
@@ -633,6 +678,10 @@
               </select>
             </div>
           </div>
+          <label class="toggle-item compact-toggle">
+            <span class="toggle-label">Normalizza volume (loudnorm −16 LUFS)</span>
+            <span class="toggle"><input id="compressLoudnorm" type="checkbox"><span class="slider"></span></span>
+          </label>
           <div id="compressAudioHint" class="muted">Seleziona le tracce da mantenere. Attiva “Unisci” per fonderle in un'unica traccia.</div>
         </div>
 
@@ -645,6 +694,14 @@
             </div>
           </div>
           <div id="compressSubtitleTracks" class="track-list"><div class="muted">Nessuna traccia disponibile.</div></div>
+          <label class="toggle-item compact-toggle">
+            <span class="toggle-label">Brucia i sottotitoli nel video (hardcode)</span>
+            <span class="toggle"><input id="compressBurnSubs" type="checkbox"><span class="slider"></span></span>
+          </label>
+          <div class="field" id="compressBurnTrackField" hidden>
+            <label for="compressBurnTrack">Traccia da bruciare</label>
+            <select id="compressBurnTrack"></select>
+          </div>
           <div id="compressSubtitleHint" class="muted">I sottotitoli testuali vengono convertiti nel formato del contenitore; quelli bitmap restano solo in MKV.</div>
         </div>
       </div>
@@ -666,6 +723,20 @@
             <span class="toggle"><input id="compressHwAccel" type="checkbox" checked><span class="slider"></span></span>
           </label>
           <div id="gpuEncoderHint" class="muted">La scansione verifica davvero quali encoder hardware si inizializzano.</div>
+        </div>
+
+        <div class="panel-section estimate-panel">
+          <div class="panel-title">
+            <h3>Stima del risultato</h3>
+            <span class="panel-badge" id="compressEstimateBadge">auto</span>
+          </div>
+          <div class="estimate-box">
+            <div class="estimate-size" id="compressEstimateSize">—</div>
+            <div class="estimate-sub" id="compressEstimateSub">Scegli un video per vedere la stima.</div>
+            <div class="estimate-bar"><div id="compressEstimateFill" class="estimate-fill" style="width:0%"></div></div>
+            <div class="estimate-grid" id="compressEstimateDetails"></div>
+            <div class="estimate-note" id="compressEstimateNote">La stima si aggiorna a ogni modifica ed è indicativa (±15%).</div>
+          </div>
         </div>
 
         <div class="panel-section compress-run">
@@ -800,6 +871,13 @@
         <button id="btnCloseLog" class="btn-close" aria-label="Chiudi">×</button>
       </div>
       <div id="logBox" class="log-box">Caricamento...</div>
+    </div>
+  </div>
+
+  <div id="dropOverlay" class="drop-overlay" aria-hidden="true">
+    <div class="drop-overlay-card">
+      <div class="drop-overlay-title">Rilascia qui i file</div>
+      <div class="drop-overlay-sub">Video e audio vanno nell'editor · in Comprimi apre il primo video</div>
     </div>
   </div>
 
