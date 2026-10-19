@@ -19,6 +19,8 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
 const readmePath = path.join(scriptDir, 'public-README.md');
+// Da aggiornare a ogni release e dopo ogni riscrittura della cronologia: lo
+// script si ferma se il repo locale non è esattamente nello stato pubblicato.
 const EXPECTED_REMOTE_MAIN = 'a4b091b1c541181f556322ae60f2886a3615db6b';
 const EXPECTED_HEAD = 'a4b091b1c541181f556322ae60f2886a3615db6b';
 const TAGS = ['v2.3.0', 'v2.3.1'];
