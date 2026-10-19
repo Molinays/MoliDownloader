@@ -17,6 +17,7 @@ let lastState = {
   currentVersion: app.getVersion(),
   percent: 0,
   message: '',
+  lastCheckedAt: null,
 };
 
 function logger(level, ...args) {
@@ -64,13 +65,14 @@ function setupEvents() {
       state: 'available',
       version: info && info.version,
       releaseName: info && info.releaseName,
+      lastCheckedAt: Date.now(),
       message: 'Nuova versione trovata: download in corso...',
     });
   });
 
   autoUpdater.on('update-not-available', () => {
     resetTransient();
-    publish({ state: 'current', version: app.getVersion(), message: '' });
+    publish({ state: 'current', version: app.getVersion(), lastCheckedAt: Date.now(), message: '' });
   });
 
   autoUpdater.on('download-progress', (progress) => {
@@ -98,7 +100,7 @@ function setupEvents() {
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 240);
-    publish({ state: 'error', message });
+    publish({ state: 'error', message, lastCheckedAt: Date.now() });
   });
 }
 
@@ -121,7 +123,7 @@ async function check(manual) {
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 240);
-    publish({ state: 'error', message });
+    publish({ state: 'error', message, lastCheckedAt: Date.now() });
     return { ok: false, error: message, manual: Boolean(manual) };
   } finally {
     checking = false;

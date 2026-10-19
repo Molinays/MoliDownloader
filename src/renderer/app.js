@@ -2857,6 +2857,12 @@ function onUpdateStatus(info) {
   }
 }
 
+function fmtClock(timestamp) {
+  const date = new Date(Number(timestamp));
+  if (!Number.isFinite(date.getTime())) return '';
+  return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+}
+
 function renderUpdate() {
   const status = $('updateStatusText');
   const badge = $('updateBadge');
@@ -2897,10 +2903,12 @@ function renderUpdate() {
       text = 'Riavvio per installare l’aggiornamento...';
       label = 'installo';
       break;
-    case 'current':
-      text = `Sei aggiornato${current ? ` · v${current}` : ''}.`;
+    case 'current': {
+      const checked = fmtClock(info.lastCheckedAt);
+      text = `Sei aggiornato${current ? ` · v${current}` : ''}${checked ? ` · ultimo controllo ${checked}` : ''}.`;
       label = 'ok';
       break;
+    }
     case 'error':
       text = `Controllo non riuscito: ${info.message || 'errore di rete'}`;
       label = 'errore';
