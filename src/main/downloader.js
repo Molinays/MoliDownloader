@@ -228,9 +228,12 @@ function buildArgs(url, settings, ytdlpPath, ffmpegDir, jsRuntime, extra = {}) {
         'mp4',
       );
     } else if (['2160', '1440', '1080', '720', '480', '360'].includes(quality)) {
+      // L'ultima alternativa ignora la qualità: molti flussi HLS (player
+      // protetti, live) non hanno tutte le risoluzioni richieste e senza il
+      // fallback yt-dlp rifiuterebbe il download.
       args.push(
         '-f',
-        `bv*[height<=${quality}][ext=mp4]+ba[ext=m4a]/bv*[height<=${quality}]+ba/b[height<=${quality}]/b`,
+        `bv*[height<=${quality}][ext=mp4]+ba[ext=m4a]/bv*[height<=${quality}]+ba/b[height<=${quality}]/bv*+ba/b`,
         '--merge-output-format',
         'mp4',
       );
@@ -305,7 +308,20 @@ async function runJob(job) {
     let extra = {};
     if (resolver.isSupported(job.url)) {
       addLog(job, `[app] Risoluzione del link di ${new URL(job.url).hostname}`);
-      const resolved = await resolver.resolve(job.url, (line) => addLog(job, `[resolve] ${line}`));
+      let resolved = null;
+      let resolveError = null;
+      for (let attempt = 0; attempt < 2 && !resolved; attempt += 1) {
+        if (attempt > 0) {
+          addLog(job, '[app] Nuovo tentativo di risoluzione...');
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+        }
+        try {
+          resolved = await resolver.resolve(job.url, (line) => addLog(job, `[resolve] ${line}`));
+        } catch (error) {
+          resolveError = error;
+        }
+      }
+      if (!resolved) throw resolveError;
       targetUrl = resolved.url;
       extra = { title: resolved.title, headers: resolved.headers };
       if (resolved.title && !job.title) job.title = resolved.title;

@@ -144,6 +144,35 @@ async function run() {
     console.log('ok - playlist composta da masterPlaylist, streams e parametri dell\'embed');
     passed += 1;
 
+    // Embed in alta definizione senza h esplicito: la playlist deve chiedere h=1.
+    assert.strictEqual(
+      resolver.extractPlaylist(
+        EMBED_HTML,
+        'https://vixcloud.co/embed/305266?token=c63f4d&referer=1&lang=it&nextEpisode=1&canPlayFHD=1&scz=1',
+      ),
+      `https://vixcloud.co/playlist/305266?scz=1&lang=it&h=1&ub=1&token=${TOKEN}&expires=${EXPIRES}`,
+      'flag h=1 mancante per un embed in alta definizione',
+    );
+    console.log('ok - playlist in alta definizione richiesta con h=1');
+    passed += 1;
+
+    // Varianti provate quando la playlist non dichiara h: h=1 per ultima.
+    assert.deepStrictEqual(
+      resolver.playlistVariants(`https://vixcloud.co/playlist/305266?token=${TOKEN}&expires=${EXPIRES}&scz=1`),
+      [
+        `https://vixcloud.co/playlist/305266?token=${TOKEN}&expires=${EXPIRES}&scz=1`,
+        `https://vixcloud.co/playlist/305266?token=${TOKEN}&expires=${EXPIRES}&scz=1&h=1`,
+      ],
+      'varianti della playlist non calcolate',
+    );
+    assert.deepStrictEqual(
+      resolver.playlistVariants(`https://vixcloud.co/playlist/305266?h=1&token=${TOKEN}`),
+      [`https://vixcloud.co/playlist/305266?h=1&token=${TOKEN}`],
+      'variante duplicata per una playlist che ha già h',
+    );
+    console.log('ok - varianti della playlist calcolate');
+    passed += 1;
+
     // Il titolo del sito ("Watch ...") viene ripulito per il nome del file.
     assert.strictEqual(
       resolver.titleFromHtml('<title>Watch The Vampire Diaries S1:E19</title>'),

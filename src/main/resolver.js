@@ -24,8 +24,10 @@ const EMBED_QUERY_KEYS = ['h', 'scz', 'lang'];
 const STREAM_FLAGS = ['ub', 'ab'];
 /** Percorsi che identificano un player: gli altri URL del dominio sono script o analytics. */
 const PLAYER_PATH = /(?:^|\/)(?:embed|playlist|iframe)(?:[/?.]|$)/i;
-const BROWSER_TIMEOUT = 30000;
+const BROWSER_ATTEMPT_TIMEOUT = 32000;
+const BROWSER_ATTEMPTS = 2;
 const BROWSER_POLL = 400;
+const BROWSER_RELOAD_PAUSE = 1500;
 const BROWSER_PARTITION = 'persist:moli-player';
 
 function hostOf(rawUrl) {
@@ -245,6 +247,11 @@ function buildPlaylistUrl(parts, baseUrl) {
       url.searchParams.set(key, pageUrl.searchParams.get(key));
     }
   }
+  // L'embed che abilita l'alta definizione (canPlayFHD=1) va richiesto con h=1:
+  // senza quel flag VixCloud risponde 403 alla playlist.
+  if (!url.searchParams.has('h') && /(?:^|[?&])canPlayFHD=(?:1|true)(?:&|$)/i.test(pageUrl.search)) {
+    url.searchParams.set('h', '1');
+  }
   if (flag) {
     const [key, value] = flag.split('=');
     if (!url.searchParams.has(key)) url.searchParams.set(key, value);
@@ -255,6 +262,29 @@ function buildPlaylistUrl(parts, baseUrl) {
     if (value && !url.searchParams.has(key)) url.searchParams.set(key, value);
   }
   return url.toString();
+}
+
+/**
+ * Varianti accettate dal player per la stessa playlist: quella composta e, se
+ * manca, la stessa con h=1. Le prove sul player reale mostrano che la richiesta
+ * senza h viene rifiutata (403) anche quando l'embed non dichiara canPlayFHD.
+ */
+function playlistVariants(url) {
+  const list = [];
+  const value = String(url || '');
+  if (!value) return list;
+  list.push(value);
+  try {
+    const parsed = new URL(value);
+    if (!parsed.searchParams.has('h')) {
+      parsed.searchParams.set('h', '1');
+      const withH = parsed.toString();
+      if (!list.includes(withH)) list.push(withH);
+    }
+  } catch {
+    /* URL non valido: resta la variante originale */
+  }
+  return list;
 }
 
 /** Ricostruisce l'URL della playlist dalla pagina HTML del player. */
@@ -375,8 +405,20 @@ async function resolveWithHttp(target, log) {
     }
     log('Playlist HLS trovata, recupero il flusso...');
     streamReferer = `${new URL(embedUrl).origin}/`;
-    const playlist = await request(playlistUrl, streamReferer);
-    streamUrl = extractStream(playlist.body, playlistUrl) || playlistUrl;
+    let playlist = null;
+    let playlistRequestUrl = playlistUrl;
+    let lastError = null;
+    for (const candidate of playlistVariants(playlistUrl)) {
+      try {
+        playlist = await request(candidate, streamReferer);
+        playlistRequestUrl = candidate;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!playlist) throw lastError || new Error('Playlist non raggiungibile.');
+    streamUrl = extractStream(playlist.body, playlistRequestUrl) || playlistRequestUrl;
   } else {
     log('Lettura della playlist...');
     streamUrl = target;
@@ -451,10 +493,18 @@ async function readPlayerConfig(frame) {
 /** Cattura le richieste della sessione: il player chiede da sé playlist e flusso HLS. */
 function captureSession(ses) {
   if (ses.__moliCapture) return ses.__moliCapture;
-  const state = { playlist: '', stream: '' };
+  const state = { playlist: '', stream: '', denied: 0 };
   ses.webRequest.onCompleted((details) => {
     const url = details && details.url ? details.url : '';
     if (!url) return;
+    const status = Number(details.statusCode) || 0;
+    const isStreamRequest = /\/playlist\/[^/?#]+/i.test(url) || /\.m3u8(?:[?#]|$)/i.test(url);
+    if (isStreamRequest && status >= 400) {
+      // Token vecchio o richiesta rifiutata: il player resta a ritentare all'infinito.
+      state.denied += 1;
+      return;
+    }
+    if (!isStreamRequest || status >= 400) return;
     if (!state.stream && /\.m3u8(?:[?#]|$)/i.test(url)) state.stream = url;
     else if (!state.playlist && /\/playlist\/[^/?#]+/i.test(url)) state.playlist = url;
   });
@@ -476,11 +526,14 @@ async function waitForStream(win, ses, capture, log, deadline) {
   let ticks = 0;
   while (Date.now() < deadline) {
     if (capture.stream) return { url: capture.stream, source: 'flusso HLS del player' };
+    if (capture.denied >= 2) return { stale: true };
 
     if (capture.playlist) {
-      const body = await sessionFetch(ses, capture.playlist, 'https://vixcloud.co/').catch(() => '');
-      const stream = body ? extractStream(body, capture.playlist) : '';
-      if (stream) return { url: stream, source: 'playlist del player' };
+      for (const candidate of playlistVariants(capture.playlist)) {
+        const body = await sessionFetch(ses, candidate, 'https://vixcloud.co/').catch(() => '');
+        const stream = body ? extractStream(body, candidate) : '';
+        if (stream) return { url: stream, source: 'playlist del player' };
+      }
     }
 
     for (const frame of playerFrames(win)) {
@@ -497,9 +550,11 @@ async function waitForStream(win, ses, capture, log, deadline) {
       );
       if (!playlistUrl) continue;
       capture.playlist = capture.playlist || playlistUrl;
-      const body = await sessionFetch(ses, playlistUrl, 'https://vixcloud.co/').catch(() => '');
-      const stream = body ? extractStream(body, playlistUrl) : '';
-      if (stream) return { url: stream, source: 'config del player' };
+      for (const candidate of playlistVariants(playlistUrl)) {
+        const body = await sessionFetch(ses, candidate, 'https://vixcloud.co/').catch(() => '');
+        const stream = body ? extractStream(body, candidate) : '';
+        if (stream) return { url: stream, source: 'config del player' };
+      }
     }
 
     ticks += 1;
@@ -518,8 +573,12 @@ async function resolveWithBrowser(target, log) {
     /* opzionale */
   }
   const capture = captureSession(ses);
-  capture.playlist = '';
-  capture.stream = '';
+  const resetCapture = () => {
+    capture.playlist = '';
+    capture.stream = '';
+    capture.denied = 0;
+  };
+  resetCapture();
 
   const win = new BrowserWindow({
     show: false,
@@ -537,16 +596,16 @@ async function resolveWithBrowser(target, log) {
   });
   win.webContents.setUserAgent(UA);
 
-  try {
-    log('Apro il player nel browser interno...');
-    // La pagina può annullare o sostituire una navigazione (ERR_ABORTED -3):
-    // la riuscita vera si misura sul flusso che il player chiede.
-    let loadError = '';
-    await new Promise((resolve) => {
-      const timer = setTimeout(resolve, REQUEST_TIMEOUT);
+  // La pagina può annullare o sostituire una navigazione (ERR_ABORTED -3) e il
+  // sito può servire un token già consumato: la riuscita si misura sul flusso
+  // che il player chiede, e al secondo tentativo si ricarica la pagina.
+  const loadWindow = (reload) =>
+    new Promise((resolve) => {
+      let loadError = '';
+      const timer = setTimeout(() => resolve(loadError), REQUEST_TIMEOUT);
       const done = () => {
         clearTimeout(timer);
-        resolve();
+        resolve(loadError);
       };
       win.webContents.once('did-finish-load', done);
       win.webContents.once('did-fail-load', (_event, code, description, _url, isMainFrame) => {
@@ -554,13 +613,49 @@ async function resolveWithBrowser(target, log) {
         loadError = `${description || 'errore di rete'} (${code})`;
         done();
       });
-      win.loadURL(target, { userAgent: UA }).catch(() => {
-        /* l'esito reale lo dà waitForStream */
-      });
+      if (reload) {
+        // Senza cache: la pagina del sito serve un token nuovo solo se rigenerata.
+        win.webContents.reloadIgnoringCache();
+        return;
+      }
+      // Niente cache HTTP: un token riusato viene rifiutato dal player (403).
+      win
+        .loadURL(target, { userAgent: UA, extraHeaders: 'pragma: no-cache\ncache-control: no-cache' })
+        .catch(() => {
+          /* l'esito reale lo dà waitForStream */
+        });
     });
 
-    const found = await waitForStream(win, ses, capture, log, Date.now() + BROWSER_TIMEOUT);
-    if (!found) {
+  try {
+    log('Apro il player nel browser interno...');
+    let loadError = await loadWindow(false);
+    let found = await waitForStream(win, ses, capture, log, Date.now() + BROWSER_ATTEMPT_TIMEOUT);
+    let sawDenied = Boolean(found && found.stale);
+    for (let attempt = 1; !found && attempt < BROWSER_ATTEMPTS; attempt += 1) {
+      // Il sito a volte serve un token già consumato (403/410) e il player può
+      // mostrare un controllo di sicurezza: ricaricare ottiene un link fresco.
+      const stale = Boolean(found && found.stale);
+      log(
+        stale
+          ? 'Token rifiutato dal player: ricarico la pagina per averne uno nuovo...'
+          : attempt === 1
+            ? 'Ricarico il player per ottenere un link fresco...'
+            : 'Nuovo tentativo con il player...',
+      );
+      if (!stale) await new Promise((resolve) => setTimeout(resolve, BROWSER_RELOAD_PAUSE));
+      resetCapture();
+      loadError = (await loadWindow(true)) || loadError;
+      found = await waitForStream(win, ses, capture, log, Date.now() + BROWSER_ATTEMPT_TIMEOUT);
+      sawDenied = sawDenied || Boolean(found && found.stale);
+    }
+    if (!found || found.stale) {
+      if (sawDenied && !loadError) {
+        const denied = new Error(
+          'Il player ha rifiutato il flusso (richieste 403): riprova fra qualche istante, il sito limita le richieste ravvicinate.',
+        );
+        denied.noStreamDenied = true;
+        throw denied;
+      }
       throw new Error(
         loadError
           ? `Caricamento del player non riuscito: ${loadError}.`
@@ -591,6 +686,24 @@ async function resolve(rawUrl, onLog) {
   const parsed = new URL(target);
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     throw new Error('Protocollo non supportato');
+  }
+
+  // I siti di streaming servono il player solo nel browser: le richieste HTTP
+  // dirette a VixCloud vengono rifiutate (403) e il rifiuto si trascina anche
+  // nel percorso browser. Per questi link si parte quindi dalla finestra vera.
+  if (isStreamingHost(target) && browserAvailable()) {
+    let browserError = null;
+    try {
+      return await resolveWithBrowser(target, log);
+    } catch (error) {
+      if (error && error.noStreamDenied) throw error;
+      browserError = error;
+    }
+    try {
+      return await resolveWithHttp(target, log);
+    } catch (httpError) {
+      throw new Error(`${browserError.message} — percorso diretto: ${httpError.message}`);
+    }
   }
 
   let httpError = null;
@@ -625,6 +738,7 @@ module.exports = {
   pickEmbed,
   playerPartsFromHtml,
   buildPlaylistUrl,
+  playlistVariants,
   extractPlaylist,
   extractStream,
   headersFor,
