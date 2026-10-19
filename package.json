@@ -1,0 +1,88 @@
+{
+  "name": "molidowloader",
+  "version": "2.3.0",
+  "description": "Downloader universale (YouTube, TikTok, Instagram e altri) + editor video/audio e compressore GPU FFmpeg",
+  "main": "src/main/main.js",
+  "author": "Molinays",
+  "license": "MIT",
+  "copyright": "Copyright © 2026 Molinays",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Molinays/MoliDownloader.git"
+  },
+  "homepage": "https://github.com/Molinays/MoliDownloader",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win",
+    "publish": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "electron-updater": "^6.8.9",
+    "ffmpeg-static": "^5.3.0"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.moli.molidowloader",
+    "productName": "MoliDowloader",
+    "copyright": "Copyright © 2026 Molinays",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "LICENSE",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/ytd.exe",
+        "to": "ytd.exe"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**/*",
+      "node_modules/@ffprobe-installer/**/*"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "MoliDowloader-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "MoliDowloader-${version}.exe"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Molinays",
+        "repo": "MoliDownloader",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

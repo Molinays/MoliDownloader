@@ -1,12 +1,24 @@
 @echo off
-title MoliDownloader
+title MoliDowloader
 cd /d "%~dp0"
+
+if not exist "node_modules\electron\dist\electron.exe" (
+    echo Installazione dipendenze in corso...
+    call npm install --no-audit --no-fund
+    if errorlevel 1 (
+        echo.
+        echo ERRORE: installazione fallita. Controlla che Node.js e npm siano installati.
+        pause
+        exit /b 1
+    )
+)
+
 echo.
-echo Online.
+echo Avvio MoliDowloader...
 echo.
-python "%~dp0server.py"
+call npm start
 if errorlevel 1 (
     echo.
-    echo  ERRORE: controlla che Python sia installato.
+    echo ERRORE durante l'avvio. Esegui "npm install" e riprova.
     pause
 )
