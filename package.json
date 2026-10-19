@@ -4,7 +4,7 @@
   "description": "Downloader universale (YouTube, TikTok, Instagram e altri) + editor video/audio e compressore GPU FFmpeg",
   "main": "src/main/main.js",
   "author": "Molinays",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "copyright": "Copyright © 2026 Molinays",
   "repository": {
     "type": "git",

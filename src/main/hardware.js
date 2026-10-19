@@ -1,4 +1,4 @@
-/* MoliDowloader — Copyright © 2026 Molinays. MIT License. */
+/* MoliDowloader — Copyright © 2026 Molinays. Tutti i diritti riservati. */
 'use strict';
 
 const fs = require('fs');

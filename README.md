@@ -2,7 +2,7 @@
 
 App desktop **Electron** che unisce un downloader universale, un piccolo editor video/audio e un compressore in stile HandBrake, tutti basati su **FFmpeg**.
 
-> Copyright © 2026 **Molinays** — rilasciato con licenza MIT (vedi [LICENSE](LICENSE)).
+> Copyright © 2026 **Molinays** — tutti i diritti riservati (vedi [LICENSE](LICENSE)). Il repository pubblico distribuisce **solo gli eseguibili**.
 
 ## Funzioni
 
@@ -96,7 +96,9 @@ set GH_TOKEN=...
 npm run publish
 ```
 
-In alternativa si può caricare a mano una release con tag `v<versione>` e gli stessi file. L'app installata confronta la propria versione con `latest.yml`, scarica il nuovo installer e lo applica alla chiusura. Il workflow `.github/workflows/release.yml` automatizza build e pubblicazione quando viene pushato un tag `v*`.
+L'app installata confronta la propria versione con `latest.yml`, scarica il nuovo installer e lo applica alla chiusura.
+
+Il repository GitHub pubblico è **release-only**: sul branch `main` c'è solo il README di download, quindi build e pubblicazione si fanno da questa copia privata con `npm run publish` (oppure caricando a mano installer, `.blockmap`, `latest.yml` e portable nella release). Il workflow in `.github/workflows/release.yml` resta solo come riferimento e non viene eseguito dal repository pubblico.
 
 ## Struttura
 
@@ -122,7 +124,7 @@ release/       artefatti di build (ignorata da git)
 | `src/main/binaries.js` | Ricerca di yt-dlp/FFmpeg/ffprobe, link dei tool e self-update |
 | `src/main/updater.js` | Controllo release GitHub, download e installazione aggiornamenti |
 | `resources/ytd.exe` | yt-dlp incluso nel pacchetto |
-| `LICENSE` | Licenza MIT — Copyright © 2026 Molinays |
+| `LICENSE` | Copyright © 2026 Molinays — tutti i diritti riservati (software proprietario) |
 
 ## Note
 
@@ -139,4 +141,4 @@ release/       artefatti di build (ignorata da git)
 
 ---
 
-Copyright © 2026 **Molinays**. Tutti i diritti riservati nei limiti della licenza MIT.
+Copyright © 2026 **Molinays**. Tutti i diritti riservati. Le dipendenze di terze parti (yt-dlp, FFmpeg, Electron e altre) mantengono le rispettive licenze.

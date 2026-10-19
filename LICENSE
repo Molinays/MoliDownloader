@@ -1,21 +1,21 @@
-MIT License
+MoliDowloader
+Copyright © 2026 Molinays. Tutti i diritti riservati.
 
-Copyright (c) 2026 Molinays
+Il software e il codice sorgente di MoliDowloader sono di proprietà di Molinays.
+È vietata la copia, la modifica, la distribuzione o la pubblicazione del codice
+sorgente senza autorizzazione scritta. La distribuzione ufficiale avviene
+esclusivamente tramite i file eseguibili pubblicati nella pagina delle release:
+https://github.com/Molinays/MoliDownloader/releases/latest
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+COMPONENTI DI TERZE PARTI
+Il pacchetto include o utilizza componenti distribuiti con licenze proprie, che
+restano valide e prevalenti per quei componenti:
+- yt-dlp — licenza Unlicense (https://github.com/yt-dlp/yt-dlp)
+- FFmpeg / ffprobe — licenza GPL/LGPL secondo la build distribuita (https://ffmpeg.org/legal.html)
+- Electron e le librerie npm incluse — licenze dei rispettivi progetti
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Le licenze e le note di copyright dei componenti di terze parti sono disponibili
+nei rispettivi repository e nei file LICENSE inclusi nelle dipendenze.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+IL SOFTWARE VIENE FORNITO "COSÌ COM'È", SENZA GARANZIE DI ALCUN TIPO, ESPLICITE
+O IMPLICITE. L'AUTORE NON È RESPONSABILE PER DANNI DERIVANTI DALL'USO DEL SOFTWARE.
