@@ -8,7 +8,11 @@
  */
 
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const resolver = require('../src/main/resolver');
+const downloader = require('../src/main/downloader');
 
 const TOKEN = 'e8994211477b27eaddaffc998e7471f6';
 const EXPIRES = '1797558507';
@@ -179,6 +183,13 @@ async function run() {
       'The Vampire Diaries S1:E19',
       'prefisso Watch non rimosso dal titolo',
     );
+    assert.strictEqual(
+      resolver.titleFromHtml(
+        '<title>AnimeUnity ~ Attack on Titan OVA Streaming SUB ITA/ITA &amp; Download</title>',
+      ),
+      'Attack on Titan OVA',
+      'titolo AnimeUnity non ripulito',
+    );
     console.log('ok - titolo ripulito per il nome del file');
     passed += 1;
 
@@ -229,6 +240,140 @@ async function run() {
       'errore HTTP non propagato',
     );
     console.log('ok - errore HTTP propagato');
+    passed += 1;
+
+    // --- Siti con player nascosto: animeunity e animesaturn ---
+    const MEGA_STREAM =
+      'https://cdn2.megaplay.su/hls/2e5aeb81-ccf0-49db-8946-46326bf0dbcc/playlist.m3u8';
+    const ANIME_EMBED = `<html><body><script>
+      window.video = { id: '93712' };
+      window.streams = [{"name":"Server1","active":true,"url":"https:\\/\\/vixcloud.cc\\/playlist\\/93712?token=abc123&expires=1797622838"}];
+      window.masterPlaylist = { params: { 'token': 'abc123', 'expires': '1797622838', }, url: 'https://vixcloud.cc/playlist/93712', }
+    </script></body></html>`;
+    const ANIME_PAGE = `<html><head><title>Attack on Titan OVA - AnimeUnity</title></head>
+      <body><h1>Attack on Titan OVA</h1>
+      <iframe src="https://animeunity.so/embed/673?ep=1"></iframe></body></html>`;
+
+    global.fetch = async (url) => {
+      const called = String(url);
+      const body = called.includes('/embed/')
+        ? ANIME_EMBED
+        : called.includes('/playlist/')
+          ? JSON.stringify({ src: MEGA_STREAM })
+          : ANIME_PAGE;
+      return { ok: true, status: 200, statusText: 'OK', url: called, text: async () => body };
+    };
+    assert.ok(resolver.isSupported('https://www.animeunity.to/anime/673-attack-on-titan-ova'));
+    const anime = await resolver.resolve('https://www.animeunity.to/anime/673-attack-on-titan-ova');
+    assert.strictEqual(anime.url, MEGA_STREAM, 'animeunity: flusso non trovato');
+    assert.strictEqual(anime.title, 'Attack on Titan OVA', 'animeunity: titolo non pulito');
+    assert.ok(anime.headers.referer.includes('vixcloud.cc'), 'animeunity: referer errato');
+    console.log('ok - animeunity: iframe, token e titolo risolti');
+    passed += 1;
+
+    // Playlist scritta direttamente nella pagina (Playerjs di animesaturn).
+    const SATURN_PAGE = `<html><head><title>One Piece ITA Episodio 940 - AnimeSaturn</title></head>
+      <body><h1>One Piece ITA Episodio 940</h1>
+      <script>var player = new Playerjs({file:"https:\\/\\/cdn2.megaplay.su\\/hls\\/abc\\/playlist.m3u8"});</script>
+      </body></html>`;
+    global.fetch = async (url) => {
+      const called = String(url);
+      const body = /\.m3u8/i.test(called) ? M3U8 : SATURN_PAGE;
+      return { ok: true, status: 200, statusText: 'OK', url: called, text: async () => body };
+    };
+    const saturn = await resolver.resolve('https://animesaturn.ro/one-piece-ita-episode-940/');
+    assert.strictEqual(saturn.url, 'https://cdn2.megaplay.su/hls/abc/playlist.m3u8', 'animesaturn: flusso non trovato');
+    assert.strictEqual(saturn.title, 'One Piece ITA Episodio 940', 'animesaturn: titolo errato');
+    console.log('ok - animesaturn: playlist letta dallo script della pagina');
+    passed += 1;
+
+    // Link di un sito qualunque: resolveAuto usa la stessa ricerca.
+    global.fetch = async (url) => {
+      const called = String(url);
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        url: called,
+        text: async () => (/\.m3u8/i.test(called) ? M3U8 : SATURN_PAGE),
+      };
+    };
+    const auto = await resolver.resolveAuto('https://sito-sconosciuto.example/episodio-1');
+    assert.strictEqual(auto.url, 'https://cdn2.megaplay.su/hls/abc/playlist.m3u8', 'resolveAuto: flusso non trovato');
+    console.log('ok - resolveAuto trova il flusso anche per un sito sconosciuto');
+    passed += 1;
+
+    // --- Video nativo: link TikTok e mp4 dichiarati nella pagina ---
+    assert.strictEqual(
+      resolver.tiktokVideoId('https://www.tiktok.com/@moli/video/7412345678901234567?is_from_webapp=1'),
+      '7412345678901234567',
+      'id TikTok non riconosciuto',
+    );
+    assert.strictEqual(
+      resolver.tiktokVideoId('https://www.tiktok.com/embed/v2/7412345678901234567'),
+      '7412345678901234567',
+      'id TikTok non riconosciuto nel player incorporato',
+    );
+    assert.strictEqual(resolver.tiktokVideoId('https://vm.tiktok.com/ZMabc123/'), '', 'link breve scambiato per un id');
+    console.log('ok - id del video TikTok riconosciuto');
+    passed += 1;
+
+    // TikTok dichiara il video in JSON con gli slash escapati; il player
+    // incorporato lo mette in un tag <video src>.
+    const TIKTOK_JSON = `<script>{"video":{"playAddr":"https:\\/\\/v16-webapp.tiktok.com\\/video\\/tos\\/useast5\\/abc\\/?a=1988&mime_type=video_mp4"}}</script>`;
+    assert.ok(
+      resolver.mediaCandidates(TIKTOK_JSON, 'https://www.tiktok.com/embed/v2/1').includes(
+        'https://v16-webapp.tiktok.com/video/tos/useast5/abc/?a=1988&mime_type=video_mp4',
+      ),
+      'playAddr TikTok non estratto',
+    );
+    const NATIVE_PAGE = `<html><body><video id="player" src="/media/clip%20finale.mp4" poster="x.jpg"></video>
+      <source src="https://cdn.example.com/film.webm"></body></html>`;
+    const nativeList = resolver.mediaCandidates(NATIVE_PAGE, 'https://www.example.com/articolo/1');
+    assert.ok(nativeList.includes('https://www.example.com/media/clip%20finale.mp4'), 'mp4 relativo non risolto');
+    assert.ok(nativeList.includes('https://cdn.example.com/film.webm'), 'webm della pagina non trovato');
+    console.log('ok - mp4/webm nativi trovati nella pagina');
+    passed += 1;
+
+    assert.strictEqual(
+      resolver.titleFromMediaUrl('https://cdn.example.com/video/My%20Clip_finale.mp4?token=1'),
+      'My Clip finale',
+      'titolo dal link diretto errato',
+    );
+    console.log('ok - titolo ricavato da un link video diretto');
+    passed += 1;
+
+    // --- Nome del file: il titolo della pagina, non l'id del CDN ---
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moli-args-'));
+    const args = downloader.buildArgs(
+      'https://cdn.vixcloud.co/hls/74657/master.m3u8?token=x',
+      { output_dir: outDir, quality: 'best' },
+      'yt-dlp',
+      '',
+      process.execPath,
+      { title: 'Attack on Titan OVA', headers: {} },
+    );
+    const output = args[args.indexOf('-o') + 1];
+    assert.strictEqual(output, path.join(outDir, 'Attack on Titan OVA.%(ext)s'), 'nome file dal titolo errato');
+    const withoutTitle = downloader.buildArgs(
+      'https://cdn.vixcloud.co/hls/74657/master.m3u8?token=x',
+      { output_dir: outDir, output_template: '%(title)s.%(ext)s' },
+      'yt-dlp',
+      '',
+      process.execPath,
+      { headers: {} },
+    );
+    assert.strictEqual(
+      withoutTitle[withoutTitle.indexOf('-o') + 1],
+      path.join(outDir, '%(title)s.%(ext)s'),
+      'template di fallback non rispettato',
+    );
+    assert.strictEqual(
+      downloader.titleFromUrl('https://animesaturn.ro/one-piece-ita-episode-940/'),
+      'One Piece ITA Episodio 940',
+      'titolo ricavato dal link errato',
+    );
+    console.log('ok - nome del file dal titolo della pagina');
     passed += 1;
 
     console.log(`\n${passed} test superati`);

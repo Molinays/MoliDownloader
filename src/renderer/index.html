@@ -59,8 +59,7 @@
             <span class="chip">SoundCloud</span>
             <span class="chip muted">+1000 siti</span>
           </div>
-          <div class="url-hint">Un link per riga per scaricare più contenuti insieme. Per Instagram o TikTok privati
-            seleziona i cookie del browser in Avanzate.</div>
+          <div class="url-hint">Un link per riga. L'app trova il video da sola: se il sito lo nasconde dietro un player o richiede un accesso, riprova con i cookie del browser. Nessuna estensione necessaria.</div>
         </div>
 
         <div class="tabs">
@@ -69,138 +68,201 @@
         </div>
 
         <div id="videoSettings">
-          <div class="section-title">Qualità video</div>
-          <div class="settings-grid">
-            <div class="field">
-              <label for="quality">Qualità</label>
-              <select id="quality">
-                <option value="best">Best (automatico)</option>
-                <option value="2160">4K (2160p)</option>
-                <option value="1440">QHD (1440p)</option>
-                <option value="1080" selected>Full HD (1080p)</option>
-                <option value="720">HD (720p)</option>
-                <option value="480">SD (480p)</option>
-                <option value="360">Low (360p)</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="outputDir">Cartella output</label>
-              <div class="folder-row">
-                <input id="outputDir" type="text" placeholder="Downloads">
-                <button class="btn-icon" data-pick-folder="video" title="Sfoglia">Sfoglia</button>
+          <details class="settings-group" open>
+            <summary>
+              <span class="group-title">Output</span>
+              <span class="group-note">Qualità, cartella e nome file</span>
+            </summary>
+            <div class="group-body">
+              <div class="settings-grid">
+                <div class="field">
+                  <label for="quality">Qualità</label>
+                  <select id="quality">
+                    <option value="best">Best (automatico)</option>
+                    <option value="2160">4K (2160p)</option>
+                    <option value="1440">QHD (1440p)</option>
+                    <option value="1080" selected>Full HD (1080p)</option>
+                    <option value="720">HD (720p)</option>
+                    <option value="480">SD (480p)</option>
+                    <option value="360">Low (360p)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="outputDir">Cartella output</label>
+                  <div class="folder-row">
+                    <input id="outputDir" type="text" placeholder="Downloads">
+                    <button class="btn-icon" data-pick-folder="video" title="Sfoglia">Sfoglia</button>
+                  </div>
+                </div>
+                <div class="field full">
+                  <label for="outputTmpl">Template nome file</label>
+                  <input id="outputTmpl" type="text" value="%(title)s.%(ext)s" placeholder="%(title)s.%(ext)s">
+                </div>
               </div>
             </div>
-            <div class="field full">
-              <label for="outputTmpl">Template nome file</label>
-              <input id="outputTmpl" type="text" value="%(title)s.%(ext)s" placeholder="%(title)s.%(ext)s">
-            </div>
-          </div>
+          </details>
 
-          <div class="section-title">Sottotitoli</div>
-          <div class="settings-grid">
-            <div class="field">
-              <label for="subLangs">Lingue sottotitoli</label>
-              <input id="subLangs" type="text" value="en,it" placeholder="en,it,fr">
+          <details class="settings-group">
+            <summary>
+              <span class="group-title">Sottotitoli</span>
+              <span class="group-note">Lingue e incorporamento</span>
+            </summary>
+            <div class="group-body">
+              <div class="settings-grid">
+                <div class="field">
+                  <label for="subLangs">Lingue sottotitoli</label>
+                  <input id="subLangs" type="text" value="en,it" placeholder="en,it,fr">
+                </div>
+              </div>
+              <div class="toggles-grid">
+                <label class="toggle-item">
+                  <span class="toggle-label">Scarica sottotitoli</span>
+                  <span class="toggle"><input type="checkbox" id="subtitles"><span class="slider"></span></span>
+                </label>
+                <label class="toggle-item">
+                  <span class="toggle-label">Incorporali nel video</span>
+                  <span class="toggle"><input type="checkbox" id="embedSubs"><span class="slider"></span></span>
+                </label>
+              </div>
             </div>
-          </div>
+          </details>
+
+          <details class="settings-group" open>
+            <summary>
+              <span class="group-title">Opzioni</span>
+              <span class="group-note">Cosa scaricare e come</span>
+            </summary>
+            <div class="group-body">
+              <div class="toggles-grid">
+                <label class="toggle-item">
+                  <span class="toggle-label">Playlist intera</span>
+                  <span class="toggle"><input type="checkbox" id="playlist"><span class="slider"></span></span>
+                </label>
+                <label class="toggle-item">
+                  <span class="toggle-label">Embed copertina</span>
+                  <span class="toggle"><input type="checkbox" id="embedThumb" checked><span class="slider"></span></span>
+                </label>
+                <label class="toggle-item">
+                  <span class="toggle-label">Embed metadata</span>
+                  <span class="toggle"><input type="checkbox" id="metadata" checked><span class="slider"></span></span>
+                </label>
+                <label class="toggle-item">
+                  <span class="toggle-label">SponsorBlock</span>
+                  <span class="toggle"><input type="checkbox" id="sponsorblock"><span class="slider"></span></span>
+                </label>
+                <label class="toggle-item">
+                  <span class="toggle-label">Geo bypass</span>
+                  <span class="toggle"><input type="checkbox" id="geoBypass"><span class="slider"></span></span>
+                </label>
+                <label class="toggle-item" title="Se un download fallisce, riprova da solo con altre impostazioni">
+                  <span class="toggle-label">Riprova da solo</span>
+                  <span class="toggle"><input type="checkbox" id="autoRetry" checked><span class="slider"></span></span>
+                </label>
+                <label class="toggle-item" title="Nei tentativi automatici usa i cookie del browser installato">
+                  <span class="toggle-label">Cookie se serve</span>
+                  <span class="toggle"><input type="checkbox" id="cookieFallback" checked><span class="slider"></span></span>
+                </label>
+              </div>
+            </div>
+          </details>
+
+          <details class="settings-group">
+            <summary>
+              <span class="group-title">Prestazioni</span>
+              <span class="group-note">Coda, tentativi e banda</span>
+            </summary>
+            <div class="group-body">
+              <div class="settings-grid">
+                <div class="field">
+                  <label for="maxParallel">Download in parallelo</label>
+                  <input id="maxParallel" type="number" value="2" min="1" max="8">
+                </div>
+                <div class="field">
+                  <label for="retries">Tentativi per link</label>
+                  <input id="retries" type="number" value="10" min="1" max="99">
+                </div>
+                <div class="field">
+                  <label for="concurrentFragments">Frammenti paralleli</label>
+                  <input id="concurrentFragments" type="number" value="8" min="1" max="16">
+                </div>
+                <div class="field">
+                  <label for="rateLimit">Limite di banda</label>
+                  <input id="rateLimit" type="text" placeholder="es. 5M, 1.5M">
+                </div>
+              </div>
+              <div class="group-hint">Da 1 a 8 download insieme: gli altri link restano in coda. Il limite di banda è opzionale (es. 5M = 5 MB/s).</div>
+            </div>
+          </details>
+
+          <details class="settings-group">
+            <summary>
+              <span class="group-title">Accesso e rete</span>
+              <span class="group-note">Cookie e proxy</span>
+            </summary>
+            <div class="group-body">
+              <div class="settings-grid">
+                <div class="field">
+                  <label for="cookiesFrom">Cookie da browser</label>
+                  <select id="cookiesFrom">
+                    <option value="">Nessuno (automatico)</option>
+                    <option value="chrome">Chrome</option>
+                    <option value="firefox">Firefox</option>
+                    <option value="edge">Edge</option>
+                    <option value="brave">Brave</option>
+                    <option value="opera">Opera</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="proxy">Proxy (opzionale)</label>
+                  <input id="proxy" type="text" placeholder="socks5://127.0.0.1:1080">
+                </div>
+              </div>
+              <div class="group-hint">I cookie servono solo per contenuti privati o che richiedono l'accesso. Se il download fallisce, l'app li prova da sola.</div>
+            </div>
+          </details>
         </div>
 
         <div id="audioSettings" style="display:none">
-          <div class="section-title">Formato audio</div>
-          <div class="settings-grid">
-            <div class="field">
-              <label for="audioFormat">Formato</label>
-              <select id="audioFormat">
-                <option value="mp3" selected>MP3</option>
-                <option value="m4a">M4A (AAC)</option>
-                <option value="opus">Opus</option>
-                <option value="flac">FLAC</option>
-                <option value="wav">WAV</option>
-                <option value="best">Best (no convert)</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="audioQuality">Bitrate</label>
-              <select id="audioQuality">
-                <option value="320">320 kbps</option>
-                <option value="256">256 kbps</option>
-                <option value="192" selected>192 kbps</option>
-                <option value="128">128 kbps</option>
-                <option value="96">96 kbps</option>
-              </select>
-            </div>
-            <div class="field full">
-              <label for="outputDirAudio">Cartella output</label>
-              <div class="folder-row">
-                <input id="outputDirAudio" type="text" placeholder="Downloads">
-                <button class="btn-icon" data-pick-folder="audio" title="Sfoglia">Sfoglia</button>
+          <details class="settings-group" open>
+            <summary>
+              <span class="group-title">Audio</span>
+              <span class="group-note">Formato, bitrate e cartella</span>
+            </summary>
+            <div class="group-body">
+              <div class="settings-grid">
+                <div class="field">
+                  <label for="audioFormat">Formato</label>
+                  <select id="audioFormat">
+                    <option value="mp3" selected>MP3</option>
+                    <option value="m4a">M4A (AAC)</option>
+                    <option value="opus">Opus</option>
+                    <option value="flac">FLAC</option>
+                    <option value="wav">WAV</option>
+                    <option value="best">Best (no convert)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="audioQuality">Bitrate</label>
+                  <select id="audioQuality">
+                    <option value="320">320 kbps</option>
+                    <option value="256">256 kbps</option>
+                    <option value="192" selected>192 kbps</option>
+                    <option value="128">128 kbps</option>
+                    <option value="96">96 kbps</option>
+                  </select>
+                </div>
+                <div class="field full">
+                  <label for="outputDirAudio">Cartella output</label>
+                  <div class="folder-row">
+                    <input id="outputDirAudio" type="text" placeholder="Downloads">
+                    <button class="btn-icon" data-pick-folder="audio" title="Sfoglia">Sfoglia</button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          </details>
         </div>
 
-        <div class="section-title">Opzioni</div>
-        <div class="toggles-grid">
-          <label class="toggle-item">
-            <span class="toggle-label">Playlist</span>
-            <span class="toggle"><input type="checkbox" id="playlist"><span class="slider"></span></span>
-          </label>
-          <label class="toggle-item">
-            <span class="toggle-label">Sottotitoli</span>
-            <span class="toggle"><input type="checkbox" id="subtitles"><span class="slider"></span></span>
-          </label>
-          <label class="toggle-item">
-            <span class="toggle-label">Embed sottotitoli</span>
-            <span class="toggle"><input type="checkbox" id="embedSubs"><span class="slider"></span></span>
-          </label>
-          <label class="toggle-item">
-            <span class="toggle-label">Embed copertina</span>
-            <span class="toggle"><input type="checkbox" id="embedThumb" checked><span class="slider"></span></span>
-          </label>
-          <label class="toggle-item">
-            <span class="toggle-label">Embed metadata</span>
-            <span class="toggle"><input type="checkbox" id="metadata" checked><span class="slider"></span></span>
-          </label>
-          <label class="toggle-item">
-            <span class="toggle-label">SponsorBlock</span>
-            <span class="toggle"><input type="checkbox" id="sponsorblock"><span class="slider"></span></span>
-          </label>
-          <label class="toggle-item">
-            <span class="toggle-label">Geo bypass</span>
-            <span class="toggle"><input type="checkbox" id="geoBypass"><span class="slider"></span></span>
-          </label>
-        </div>
-
-        <div class="section-title">Avanzate</div>
-        <div class="settings-grid">
-          <div class="field">
-            <label for="rateLimit">Rate limit</label>
-            <input id="rateLimit" type="text" placeholder="es. 5M, 1.5M">
-          </div>
-          <div class="field">
-            <label for="retries">Retries</label>
-            <input id="retries" type="number" value="10" min="1" max="99">
-          </div>
-          <div class="field">
-            <label for="concurrentFragments">Frammenti paralleli</label>
-            <input id="concurrentFragments" type="number" value="4" min="1" max="16">
-          </div>
-          <div class="field">
-            <label for="cookiesFrom">Cookie da browser</label>
-            <select id="cookiesFrom">
-              <option value="">Nessuno</option>
-              <option value="chrome">Chrome</option>
-              <option value="firefox">Firefox</option>
-              <option value="edge">Edge</option>
-              <option value="brave">Brave</option>
-              <option value="opera">Opera</option>
-            </select>
-          </div>
-          <div class="field full">
-            <label for="proxy">Proxy (opzionale)</label>
-            <input id="proxy" type="text" placeholder="socks5://127.0.0.1:1080">
-          </div>
-        </div>
       </div>
 
       <div class="right">
@@ -245,32 +307,194 @@
       <div class="editor-grid">
         <section class="preview-col">
           <div class="preview-box" id="previewBox">
-            <video id="edVideo" playsinline controls></video>
+            <video id="edVideo" playsinline></video>
             <audio id="edMusic" preload="auto" hidden></audio>
+            <button class="trim-chip" id="trimChip" hidden>
+              <span class="trim-chip-label">Taglio</span>
+              <strong id="trimChipValue">0:00 - 0:00</strong>
+            </button>
             <div class="preview-empty" id="previewEmpty">
               <div>Importa clip o trascina qui i file</div>
-              <div class="preview-empty-sub">Taglia, sistema l'audio e monta con FFmpeg</div>
+              <div class="preview-empty-sub">Scegli uno strumento e modifica subito</div>
             </div>
             <div class="preview-badge" id="previewBadge" hidden>AUDIO</div>
+            <div class="preview-effects" id="previewEffects" hidden></div>
           </div>
 
           <div class="transport">
-            <button id="btnPreviewPlay" class="btn-sm btn-play-sequence">▶ Montaggio</button>
-            <button id="btnPreviewClip" class="btn-sm">Selezione</button>
+            <button id="btnPreviewPlay" class="btn-sm btn-play-sequence" title="Anteprima montaggio (Spazio)">▶ Montaggio</button>
+            <button id="btnPreviewClip" class="btn-sm" title="Anteprima della selezione">Selezione</button>
             <button id="btnPreviewStop" class="btn-sm">Stop</button>
+            <span class="transport-sep"></span>
+            <button id="btnFrameBack" class="btn-sm frame-btn" title="Fotogramma precedente (,)">◀|</button>
+            <button id="btnFrameNext" class="btn-sm frame-btn" title="Fotogramma successivo (.)">|▶</button>
             <span id="edTime" class="mono">00:00.0 / 00:00.0</span>
+            <span id="edFrame" class="mono">F: 0</span>
+            <label class="chip-toggle" title="Ripeti la selezione"><input id="previewLoop" type="checkbox"><span>Loop</span></label>
+            <label class="chip-toggle" title="Audio in anteprima"><input id="previewMute" type="checkbox"><span>Muto</span></label>
             <span id="edSelection" class="muted">Nessuna clip selezionata</span>
+            <input id="edScrub" class="scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="Posizione nella selezione">
           </div>
 
-          <div class="timeline-panel">
-            <div class="timeline-head">
-              <h3>Timeline</h3>
-              <span id="timelineMeta">0 clip · 0:00</span>
+          <div class="strip-head">
+            <h3>Clip</h3>
+            <span id="timelineMeta">0 clip · 0:00</span>
+            <span class="strip-hint">Trascina per riordinare · Canc rimuove</span>
+          </div>
+          <div id="timeline" class="clip-strip">
+            <div class="timeline-empty">Nessuna clip: importa un file o trascinalo qui</div>
+          </div>
+
+          <div class="tool-tabs" id="editorTools">
+            <button class="tool-tab active" data-tool="trim">Taglia</button>
+            <button class="tool-tab" data-tool="color">Colore</button>
+            <button class="tool-tab" data-tool="transform">Ruota</button>
+            <button class="tool-tab" data-tool="audio">Audio</button>
+            <button class="tool-tab" data-tool="resize">Ridimensiona</button>
+            <button class="tool-tab" data-tool="speed">Velocità</button>
+            <button class="tool-tab" data-tool="snapshot">Istantanea</button>
+            <button class="tool-tab" data-tool="inspect">Ispettore</button>
+          </div>
+
+          <div class="tool-panel" id="toolPanel">
+            <div class="tool-pane active" data-panel="trim">
+              <div class="field">
+                <label for="clipIn">Inizio <span class="range-value" id="clipInValue">0:00.0</span></label>
+                <input id="clipIn" type="range" min="0" max="10" step="0.04" value="0">
+                <input id="clipInNum" class="trim-num" type="number" min="0" max="10" step="0.01" value="0" aria-label="Inizio esatto in secondi">
+              </div>
+              <div class="field">
+                <label for="clipOut">Fine <span class="range-value" id="clipOutValue">0:10.0</span></label>
+                <input id="clipOut" type="range" min="0" max="10" step="0.04" value="10">
+                <input id="clipOutNum" class="trim-num" type="number" min="0" max="10" step="0.01" value="10" aria-label="Fine esatta in secondi">
+              </div>
+              <div class="trim-quick">
+                <button class="btn-sm" data-trim="in">IN = cursore [</button>
+                <button class="btn-sm" data-trim="out">OUT = cursore ]</button>
+                <button class="btn-sm" data-trim="split">Dividi S</button>
+                <button class="btn-sm" data-trim="goto-in">Vai a IN</button>
+                <button class="btn-sm" data-trim="goto-out">Vai a OUT</button>
+                <button class="btn-sm" data-trim="reset">Reset</button>
+              </div>
+              <div class="clip-duration">Durata selezione <strong id="clipDuration">0:10.0</strong> · clip <span id="clipIndexLabel">—</span></div>
             </div>
-            <div id="timeline" class="timeline">
-              <div class="timeline-empty">La timeline è vuota — importa una clip per iniziare</div>
+
+            <div class="tool-pane" data-panel="color">
+              <div class="preset-chips" id="colorPresets">
+                <button class="chip-btn active" data-color-preset="neutral">Neutro</button>
+                <button class="chip-btn" data-color-preset="warm">Caldo</button>
+                <button class="chip-btn" data-color-preset="cool">Freddo</button>
+                <button class="chip-btn" data-color-preset="vivid">Vivace</button>
+                <button class="chip-btn" data-color-preset="cinema">Cinema</button>
+                <button class="chip-btn" data-color-preset="mono">B/N</button>
+                <button class="chip-btn" data-color-preset="reset">Reset</button>
+              </div>
+              <div class="settings-grid compact">
+                <div class="field">
+                  <label for="colorBrightness">Luminosità <span class="range-value" id="colorBrightnessValue">0</span></label>
+                  <input id="colorBrightness" type="range" min="-50" max="50" step="1" value="0">
+                </div>
+                <div class="field">
+                  <label for="colorContrast">Contrasto <span class="range-value" id="colorContrastValue">100%</span></label>
+                  <input id="colorContrast" type="range" min="50" max="200" step="1" value="100">
+                </div>
+                <div class="field">
+                  <label for="colorSaturation">Saturazione <span class="range-value" id="colorSaturationValue">100%</span></label>
+                  <input id="colorSaturation" type="range" min="0" max="250" step="1" value="100">
+                </div>
+                <div class="field">
+                  <label for="colorGamma">Gamma <span class="range-value" id="colorGammaValue">100%</span></label>
+                  <input id="colorGamma" type="range" min="50" max="250" step="1" value="100">
+                </div>
+                <div class="field">
+                  <label for="colorTemperature">Temperatura <span class="range-value" id="colorTemperatureValue">6500 K</span></label>
+                  <input id="colorTemperature" type="range" min="2500" max="10000" step="100" value="6500">
+                </div>
+              </div>
+              <div class="tool-hint">L'anteprima è indicativa; nell'export si usano eq e colortemperature di FFmpeg.</div>
             </div>
-            <div class="timeline-hint">Trascina le clip per riordinarle · Spazio: anteprima montaggio · S: dividi · Ctrl+Z: annulla</div>
+
+            <div class="tool-pane" data-panel="transform">
+              <div class="preset-chips">
+                <button class="btn-sm" data-rotate="left">⟲ 90°</button>
+                <button class="btn-sm" data-rotate="180">180°</button>
+                <button class="btn-sm" data-rotate="right">⟳ 90°</button>
+                <button class="btn-sm" data-rotate="reset">Reset</button>
+              </div>
+              <div class="toggles-grid">
+                <label class="toggle-item"><span class="toggle-label">Specchia orizzontale</span><span class="toggle"><input id="flipH" type="checkbox"><span class="slider"></span></span></label>
+                <label class="toggle-item"><span class="toggle-label">Specchia verticale</span><span class="toggle"><input id="flipV" type="checkbox"><span class="slider"></span></span></label>
+              </div>
+              <div class="tool-hint" id="transformHint">Nessuna rotazione.</div>
+            </div>
+
+            <div class="tool-pane" data-panel="audio">
+              <div class="field">
+                <label for="clipVolume">Volume <span class="range-value" id="clipVolumeValue">100%</span></label>
+                <input id="clipVolume" type="range" min="0" max="200" step="1" value="100">
+              </div>
+              <div class="settings-grid compact">
+                <div class="field">
+                  <label for="clipFadeIn">Fade in (s)</label>
+                  <input id="clipFadeIn" type="number" min="0" step="0.1" value="0">
+                </div>
+                <div class="field">
+                  <label for="clipFadeOut">Fade out (s)</label>
+                  <input id="clipFadeOut" type="number" min="0" step="0.1" value="0">
+                </div>
+              </div>
+              <label class="toggle-item compact-toggle">
+                <span class="toggle-label">Muto</span>
+                <span class="toggle"><input id="clipMute" type="checkbox"><span class="slider"></span></span>
+              </label>
+            </div>
+
+            <div class="tool-pane" data-panel="resize">
+              <div class="preset-chips" id="zoomPresets">
+                <button class="chip-btn" data-zoom="0.5">50%</button>
+                <button class="chip-btn" data-zoom="0.75">75%</button>
+                <button class="chip-btn active" data-zoom="1">100%</button>
+                <button class="chip-btn" data-zoom="1.25">125%</button>
+                <button class="chip-btn" data-zoom="1.5">150%</button>
+                <button class="chip-btn" data-zoom="2">200%</button>
+              </div>
+              <div class="field">
+                <label for="clipZoom">Scala clip <span class="range-value" id="clipZoomValue">100%</span></label>
+                <input id="clipZoom" type="range" min="20" max="300" step="5" value="100">
+              </div>
+              <div class="tool-hint">Sotto il 100% la clip resta centrata sul canvas; sopra il 100% viene ritagliata al centro.</div>
+            </div>
+
+            <div class="tool-pane" data-panel="speed">
+              <div class="preset-chips" id="speedPresets">
+                <button class="chip-btn" data-speed="0.5">0.5x</button>
+                <button class="chip-btn" data-speed="0.75">0.75x</button>
+                <button class="chip-btn active" data-speed="1">1x</button>
+                <button class="chip-btn" data-speed="1.25">1.25x</button>
+                <button class="chip-btn" data-speed="1.5">1.5x</button>
+                <button class="chip-btn" data-speed="2">2x</button>
+              </div>
+              <div class="field">
+                <label for="clipSpeed">Velocità <span class="range-value" id="clipSpeedValue">1x</span></label>
+                <input id="clipSpeed" type="range" min="0.5" max="2" step="0.05" value="1">
+              </div>
+              <div class="tool-hint">L'audio viene rallentato/accelerato con la clip.</div>
+            </div>
+
+            <div class="tool-pane" data-panel="snapshot">
+              <button id="btnSnapshot" class="btn-dl btn-snapshot">Cattura fotogramma</button>
+              <div id="snapshotStatus" class="export-status">Il PNG viene salvato in Immagini\\MoliDowloader.</div>
+              <div id="snapshotResult" class="export-result" hidden>
+                <button id="btnOpenSnapshot" class="btn-sm">Apri immagine</button>
+                <button id="btnRevealSnapshot" class="btn-sm">Cartella</button>
+              </div>
+            </div>
+
+            <div class="tool-pane" data-panel="inspect">
+              <div id="clipInspect" class="inspect-grid">
+                <div class="muted">Seleziona una clip per vedere i dettagli tecnici.</div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -303,10 +527,6 @@
               </label>
               <button id="btnMusicRemove" class="btn-sm btn-cancel">Rimuovi musica</button>
             </div>
-          </div>
-
-          <div id="inspector" class="inspector panel-section">
-            <div class="muted">Seleziona una clip dalla timeline per modificarla.</div>
           </div>
 
           <div class="panel-section export-panel">
@@ -876,8 +1096,8 @@
 
   <div id="dropOverlay" class="drop-overlay" aria-hidden="true">
     <div class="drop-overlay-card">
-      <div class="drop-overlay-title">Rilascia qui i file</div>
-      <div class="drop-overlay-sub">Video e audio vanno nell'editor · in Comprimi apre il primo video</div>
+      <div class="drop-overlay-title">Rilascia per importare</div>
+      <div class="drop-overlay-sub">Video e audio verranno aggiunti al montaggio</div>
     </div>
   </div>
 

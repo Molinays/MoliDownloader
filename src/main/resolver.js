@@ -19,7 +19,9 @@ const UA =
 const REQUEST_TIMEOUT = 20000;
 const MAX_IFRAME_DEPTH = 3;
 const STREAMING_HOSTS = ['streamingcommunity'];
-const EMBED_HOSTS = ['vixcloud.co', 'vixcloud.net', 'vixsrc.to', 'vixsrc.net'];
+const EMBED_HOSTS = ['vixcloud.co', 'vixcloud.net', 'vixcloud.cc', 'vixsrc.to', 'vixsrc.net'];
+/** Siti con una pagina che monta il player: il flusso va estratto dalla pagina. */
+const PAGE_HOSTS = ['animeunity', 'animesaturn'];
 const EMBED_QUERY_KEYS = ['h', 'scz', 'lang'];
 const STREAM_FLAGS = ['ub', 'ab'];
 /** Percorsi che identificano un player: gli altri URL del dominio sono script o analytics. */
@@ -29,6 +31,8 @@ const BROWSER_ATTEMPTS = 2;
 const BROWSER_POLL = 400;
 const BROWSER_RELOAD_PAUSE = 1500;
 const BROWSER_PARTITION = 'persist:moli-player';
+const BROWSER_PAGE_TIMEOUT = 30000;
+let pageSessionCounter = 0;
 
 function hostOf(rawUrl) {
   try {
@@ -57,8 +61,32 @@ function isPlaylistUrl(rawUrl) {
   }
 }
 
+function isPageHost(rawUrl) {
+  const host = hostOf(rawUrl);
+  return Boolean(host) && PAGE_HOSTS.some((needle) => host.includes(needle));
+}
+
 function isSupported(rawUrl) {
-  return isStreamingHost(rawUrl) || isEmbedHost(rawUrl);
+  return isStreamingHost(rawUrl) || isEmbedHost(rawUrl) || isPageHost(rawUrl);
+}
+
+/** ID del video da un link TikTok (anche embed o link breve già risolto). */
+function tiktokVideoId(rawUrl) {
+  const match = String(rawUrl || '').match(
+    /tiktok\.com\/(?:@[^/?#]+\/video|embed(?:\/v2)?|v)\/(\d{6,})/i,
+  );
+  return match ? match[1] : '';
+}
+
+/** Nome leggibile da un link diretto a un file video. */
+function titleFromMediaUrl(rawUrl) {
+  try {
+    const segments = new URL(rawUrl).pathname.split('/').filter(Boolean);
+    const name = decodeURIComponent(segments.pop() || '').replace(/\.[a-z0-9]{2,5}$/i, '');
+    return normalizeTitle(name.replace(/[_+]+/g, ' '));
+  } catch {
+    return '';
+  }
 }
 
 function clean(text) {
@@ -76,8 +104,10 @@ function clean(text) {
 function normalizeTitle(value) {
   return clean(value)
     .replace(/^\s*(?:watch|guarda)\s+/i, '')
-    .replace(/\s*[-|–]\s*StreamingCommunity.*$/i, '')
-    .replace(/\s*[-|–]\s*VixCloud.*$/i, '')
+    .replace(/^\s*AnimeUnity\s*[~|·-]\s*/i, '')
+    .replace(/\s*[-|–]\s*(?:StreamingCommunity|VixCloud|AnimeUnity|AnimeSaturn|AnimeWorld|MegaPlay).*$/i, '')
+    .replace(/\s+(?:streaming|guarda|watch)\s+(?:SUB\s*ITA|ITA|in\s+streaming|gratis|gratuito)\b.*$/i, '')
+    .replace(/\s*&\s*download\s*$/i, '')
     .trim()
     .slice(0, 160);
 }
@@ -110,6 +140,7 @@ function normalizeScripts(html) {
   return String(html || '')
     .replace(/\\\//g, '/')
     .replace(/\\u0026/gi, '&')
+    .replace(/\\u002f/gi, '/')
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;/g, "'")
     .replace(/\\"/g, '"')
@@ -317,6 +348,179 @@ function extractStream(body, baseUrl) {
   return '';
 }
 
+/** Tutti i possibili flussi (m3u8, playlist dei player) dichiarati in una pagina. */
+function mediaCandidates(html, baseUrl) {
+  const normalized = normalizeScripts(html);
+  const found = [];
+  const push = (raw) => {
+    const value = String(raw || '').trim();
+    if (!value) return;
+    const url = absolute(value, baseUrl);
+    if (!url || !/^https?:/i.test(url) || found.includes(url)) return;
+    found.push(url);
+  };
+  const patterns = [
+    /https?:\/\/[^\s"'<>\\]+?\.(?:m3u8|mp4|webm)(?:\?[^\s"'<>\\]*)?/gi,
+    /["']([^"'\s]+?\.(?:m3u8|mp4|webm)(?:\?[^"'\s]*)?)["']/gi,
+    /["'](https?:\/\/[^"'\s]+\/playlist\/[^"'\s]+)["']/gi,
+    /["'](https?:\/\/[^"'\s]+\/hls\/[^"'\s]+)["']/gi,
+    // Player che dichiarano il video in JSON (TikTok, Vimeo, embed vari).
+    /(?:playAddr|play_addr|downloadAddr|download_addr|contentUrl|video_url|videoUrl|play_url|hd_src|sd_src)["']?\s*[:=]\s*["']([^"']+)["']/gi,
+  ];
+  for (const pattern of patterns) {
+    let match = pattern.exec(normalized);
+    while (match) {
+      push(match[1] || match[0]);
+      match = pattern.exec(normalized);
+    }
+  }
+  return found.slice(0, 20);
+}
+
+/** Iframe e player annidati della pagina, senza script e immagini. */
+function pageCandidates(html, baseUrl) {
+  const list = [];
+  const push = (raw) => {
+    const url = absolute(raw, baseUrl);
+    if (!url || url === baseUrl || list.includes(url)) return;
+    if (!/^https?:/i.test(url)) return;
+    if (/\.(?:js|css|png|jpe?g|gif|svg|webp|ico|woff2?|ttf)(?:\?|$)/i.test(url)) return;
+    list.push(url);
+  };
+  for (const url of iframesIn(html, baseUrl)) push(url);
+  push(extractEmbedUrl(html, baseUrl));
+  return list.slice(0, 8);
+}
+
+/** Risposta normalizzata con gli header da usare per il download. */
+function withHeaders(streamUrl, referer) {
+  const headers = headersFor(streamUrl, referer);
+  return { url: streamUrl, referer: headers.referer, headers };
+}
+
+/** URL che sembrano un file video diretto (mp4/webm) o un flusso CDN. */
+function isMediaCandidate(url) {
+  const value = String(url || '');
+  if (/\.(?:mp4|webm|mov|m4v)(?:[?#]|$)/i.test(value)) return true;
+  if (/\/video\/tos\//i.test(value)) return true;
+  return /mime_type=(?:video|audio)_/i.test(value);
+}
+
+/** Verifica che un candidato sia davvero una playlist HLS leggibile. */
+async function verifyStream(candidate, referer) {
+  const page = await request(candidate, referer);
+  const body = page.body || '';
+  if (!/#EXTM3U/i.test(body)) return '';
+  return extractStream(body, page.finalUrl || candidate) || candidate;
+}
+
+/**
+ * Verifica un file video senza scaricarlo: legge solo i primi byte e guarda
+ * il content-type della risposta.
+ */
+async function verifyMedia(candidate, referer) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(candidate, {
+      headers: {
+        'User-Agent': UA,
+        ...(referer ? { Referer: referer } : {}),
+        Range: 'bytes=0-2047',
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    if (!response.ok && response.status !== 206) return '';
+    const type = String(response.headers.get('content-type') || '').toLowerCase();
+    if (/^video\//.test(type) || /^audio\//.test(type) || /octet-stream/.test(type)) {
+      try {
+        await response.body.cancel();
+      } catch {
+        /* corpo già chiuso */
+      }
+      return candidate;
+    }
+    return '';
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Sceglie la verifica giusta in base al tipo di candidato. */
+async function verifyCandidate(candidate, referer) {
+  if (/\.m3u8(?:[?#]|$)/i.test(candidate) || isPlaylistUrl(candidate)) {
+    return verifyStream(candidate, referer);
+  }
+  if (isMediaCandidate(candidate)) return verifyMedia(candidate, referer);
+  return '';
+}
+
+/**
+ * Cerca il flusso in una pagina qualunque: playlist scritte nell'HTML, player
+ * VixCloud/MegaPlay e iframe annidati. Restituisce null se non trova nulla.
+ */
+async function resolveGenericHttp(target, log) {
+  const queue = [{ url: target, depth: 0 }];
+  const seen = new Set();
+  let title = '';
+  let lastError = null;
+
+  while (queue.length && seen.size < 12) {
+    const item = queue.shift();
+    if (seen.has(item.url) || item.depth > MAX_IFRAME_DEPTH) continue;
+    seen.add(item.url);
+    log(`Apro ${hostOf(item.url) || item.url}...`);
+
+    let page = null;
+    try {
+      page = await request(item.url, `${new URL(item.url).origin}/`);
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+    const pageUrl = page.finalUrl || item.url;
+    if (!title) title = titleFromHtml(page.body);
+
+    // 1. Flussi già presenti nella pagina (master HLS, playlist, JSON dei player).
+    for (const candidate of mediaCandidates(page.body, pageUrl)) {
+      if (isEmbedHost(candidate) && !isPlaylistUrl(candidate)) continue;
+      const stream = await verifyCandidate(candidate, pageUrl).catch(() => '');
+      if (stream) {
+        log(`Flusso trovato in ${hostOf(candidate) || 'pagina'}.`);
+        return { ...withHeaders(stream, pageUrl), title };
+      }
+    }
+
+    // 2. Player VixCloud: token, expires e server attivo sono nello script.
+    if (/masterPlaylist|window\.streams|vixcloud|vixsrc/i.test(page.body)) {
+      const playlistUrl = extractPlaylist(page.body, pageUrl);
+      for (const candidate of playlistVariants(playlistUrl)) {
+        try {
+          const playlist = await request(candidate, `${new URL(pageUrl).origin}/`);
+          const stream = extractStream(playlist.body, candidate);
+          if (stream) {
+            log('Playlist del player trovata.');
+            return { ...withHeaders(stream, `${new URL(candidate).origin}/`), title };
+          }
+        } catch {
+          /* provo la variante successiva */
+        }
+      }
+    }
+
+    // 3. Iframe e player intermedi.
+    for (const candidate of pageCandidates(page.body, pageUrl)) {
+      if (!seen.has(candidate)) queue.push({ url: candidate, depth: item.depth + 1 });
+    }
+  }
+
+  if (lastError) throw lastError;
+  return null;
+}
+
 async function request(url, referer) {
   const headers = {
     'User-Agent': UA,
@@ -423,7 +627,9 @@ async function resolveWithHttp(target, log) {
     log('Lettura della playlist...');
     streamUrl = target;
     const playlist = await request(streamUrl, referer);
-    streamUrl = extractStream(playlist.body, streamUrl) || streamUrl;
+    const extracted = extractStream(playlist.body, streamUrl);
+    if (!extracted) throw new Error('Il link non punta a una playlist o a un flusso video.');
+    streamUrl = extracted;
   }
 
   const headers = headersFor(streamUrl, streamReferer);
@@ -470,6 +676,80 @@ function playerFrames(win) {
   } catch {
     return [];
   }
+}
+
+/** Tutti i frame della finestra (pagina e iframe), anche non VixCloud. */
+function allFrames(win) {
+  try {
+    const contents = win.webContents;
+    if (!contents || contents.isDestroyed()) return [];
+    const main = contents.mainFrame;
+    if (!main) return [];
+    const list = [];
+    const walk = (frame) => {
+      if (!frame || list.includes(frame)) return;
+      list.push(frame);
+      let children = [];
+      try {
+        children = typeof frame.framesInSubtree === 'function' ? frame.framesInSubtree : frame.frames;
+      } catch {
+        children = [];
+      }
+      for (const child of children || []) walk(child);
+    };
+    walk(main);
+    return list;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Cerca il video nativo nella pagina: i siti che non chiedono il file finché
+ * il player non parte lo dichiarano comunque nel tag <video>/<source>.
+ */
+async function findMediaInFrames(win) {
+  for (const frame of allFrames(win)) {
+    const sources = await frame
+      .executeJavaScript(
+        `(function(){try{return Array.from(document.querySelectorAll('video,audio,source')).map(function(el){return el.currentSrc||el.src||el.getAttribute('src')||'';}).filter(function(u){return /^https?:/i.test(u);});}catch(e){return [];}})()`,
+        false,
+      )
+      .catch(() => []);
+    if (!Array.isArray(sources) || !sources.length) continue;
+    const url =
+      sources.find((value) => /\.m3u8(?:[?#]|$)/i.test(value)) ||
+      sources.find((value) => isMediaCandidate(value)) ||
+      sources.find(
+        (value) => /^https?:/i.test(value) && !/\.(?:js|css|png|jpe?g|gif|svg|webp|ico|woff2?)(?:[?#]|$)/i.test(value),
+      );
+    if (!url) continue;
+    let referrer = win.webContents.getURL();
+    try {
+      referrer = frame.url || referrer;
+    } catch {
+      /* frame non più disponibile */
+    }
+    return { url, referrer };
+  }
+  return null;
+}
+
+/** Titolo leggibile della pagina, anche quando il <title> è generico. */
+async function readPageTitle(win) {
+  const value = await win.webContents
+    .executeJavaScript(
+      `(function(){try{
+        var meta=document.querySelector('meta[property="og:title"],meta[name="twitter:title"]');
+        if(meta&&meta.content&&meta.content.trim())return meta.content.trim();
+        var lines=(document.body.innerText||'').split('\\n').map(function(s){return s.trim();}).filter(Boolean);
+        var long=lines.filter(function(l){return l.length>20&&!/watch more|tiktok|guarda ora|scopri/i.test(l);}).sort(function(a,b){return b.length-a.length;})[0];
+        return long||document.title||'';
+      }catch(e){return '';}})()`,
+      false,
+    )
+    .catch(() => '');
+  return normalizeTitle(value) || normalizeTitle(win.webContents.getTitle());
 }
 
 /** Legge window.streams / window.masterPlaylist da un frame del player. */
@@ -676,6 +956,122 @@ async function resolveWithBrowser(target, log) {
   }
 }
 /**
+ * Ultimo tentativo per un sito qualunque: apre la pagina in una finestra vera
+ * e cattura dall'esterno il primo flusso HLS/Mp4 che il player chiede. È lo
+ * stesso principio delle estensioni che "trovano" il link del video.
+ */
+async function resolveGenericBrowser(target, log) {
+  const { BrowserWindow, session } = require('electron');
+  // Una sessione per tentativo: più download in parallelo possono cercare il
+  // flusso nello stesso momento senza sovrascriversi il listener di rete.
+  pageSessionCounter += 1;
+  const partition = `moli-page-${Date.now()}-${pageSessionCounter}`;
+  const ses = session.fromPartition(partition);
+  try {
+    ses.setUserAgent(UA);
+  } catch {
+    /* opzionale */
+  }
+
+  const found = { url: '', type: '', referrer: '' };
+  const capture = (details) => {
+    if (found.url || !details || !details.url) return;
+    const url = details.url;
+    if ((Number(details.statusCode) || 0) >= 400) return;
+    if (/\.m3u8(?:[?#]|$)/i.test(url)) {
+      found.url = url;
+      found.type = 'm3u8';
+    } else if (isMediaCandidate(url) && !/\/(?:ads?|banner|splash)[/_]/i.test(url)) {
+      found.url = url;
+      found.type = 'mp4';
+    } else {
+      return;
+    }
+    found.referrer = details.referrer || target;
+  };
+  try {
+    ses.webRequest.onCompleted(capture);
+  } catch {
+    /* senza listener resta il polling della pagina */
+  }
+
+  const win = new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 720,
+    backgroundColor: '#000000',
+    webPreferences: {
+      partition,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+      backgroundThrottling: false,
+    },
+  });
+  win.webContents.setUserAgent(UA);
+
+  try {
+    log('Apro la pagina nel browser interno per intercettare il flusso...');
+    win.loadURL(target, { userAgent: UA }).catch(() => {
+      /* l'esito lo dà la cattura */
+    });
+
+    const deadline = Date.now() + BROWSER_PAGE_TIMEOUT;
+    let ticks = 0;
+    while (!found.url && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      ticks += 1;
+      // Il player può dichiarare il video nel DOM senza far partire la rete.
+      if (ticks % 2 === 0) {
+        const dom = await findMediaInFrames(win);
+        if (dom) {
+          found.url = dom.url;
+          found.type = /\.m3u8(?:[?#]|$)/i.test(dom.url) ? 'm3u8' : 'mp4';
+          found.referrer = dom.referrer;
+          found.source = 'video nella pagina';
+        }
+      }
+      if (ticks % 12 === 0) log('Attendo che il player chieda il video...');
+    }
+
+    if (!found.url) {
+      throw new Error('Il player non ha richiesto nessun flusso: il sito potrebbe richiedere un accesso o il link non contiene un video.');
+    }
+
+    try {
+      win.webContents.stop();
+    } catch {
+      /* finestra già chiusa */
+    }
+
+    let streamUrl = found.url;
+    if (found.type === 'm3u8') {
+      const body = await ses
+        .fetch(streamUrl, { headers: { Accept: 'application/vnd.apple.mpegurl,*/*' } })
+        .then((response) => (response.ok ? response.text() : ''))
+        .catch(() => '');
+      if (body && /#EXTM3U/i.test(body)) streamUrl = extractStream(body, streamUrl) || streamUrl;
+    }
+
+    const title = await readPageTitle(win);
+    log(`Flusso intercettato (${found.source || 'rete del player'}).`);
+    return { ...withHeaders(streamUrl, found.referrer || target), title };
+  } finally {
+    try {
+      ses.webRequest.onCompleted(null);
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (!win.isDestroyed()) win.destroy();
+    } catch {
+      /* finestra già chiusa */
+    }
+  }
+}
+
+/**
  * Restituisce { url, title, referer, headers } dove url è il flusso scaricabile.
  */
 async function resolve(rawUrl, onLog) {
@@ -686,6 +1082,28 @@ async function resolve(rawUrl, onLog) {
   const parsed = new URL(target);
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     throw new Error('Protocollo non supportato');
+  }
+
+  // Pagine con player non VixCloud (animeunity, animesaturn): il flusso va
+  // cercato nell'HTML e, se il sito lo nasconde, intercettato dal browser.
+  if (isPageHost(target) && !isEmbedHost(target)) {
+    let httpError = null;
+    try {
+      const found = await resolveGenericHttp(target, log);
+      if (found) return found;
+    } catch (error) {
+      httpError = error;
+    }
+    if (browserAvailable()) {
+      try {
+        return await resolveGenericBrowser(target, log);
+      } catch (error) {
+        throw new Error(
+          `${error.message}${httpError ? ` — percorso diretto: ${httpError.message}` : ''}`,
+        );
+      }
+    }
+    throw httpError || new Error('Nessun video trovato nella pagina: il sito potrebbe richiedere un accesso.');
   }
 
   // I siti di streaming servono il player solo nel browser: le richieste HTTP
@@ -723,13 +1141,83 @@ async function resolve(rawUrl, onLog) {
   }
 }
 
+/**
+ * Risoluzione per un link qualunque, usata quando yt-dlp non lo gestisce:
+ * prova la pagina e poi il browser interno. Restituisce null se non c'è nulla.
+ */
+async function resolveAuto(rawUrl, onLog) {
+  const log = typeof onLog === 'function' ? onLog : () => {};
+  let target = String(rawUrl || '').trim();
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) target = `https://${target}`;
+  if (!/^https?:/i.test(target)) return null;
+
+  if (isSupported(target)) return resolve(target, log);
+
+  // Link già puntato a un file video: nessuna pagina da aprire, si verifica
+  // che risponda davvero e si scarica quello.
+  const directMedia =
+    /\.(?:mp4|m4v|webm|mov)(?:[?#]|$)/i.test(target) || /mime_type=video_/i.test(target);
+  if (directMedia) {
+    const origin = hostOf(target) ? `https://${hostOf(target)}/` : '';
+    const stream = await verifyMedia(target, origin).catch(() => '');
+    if (stream) {
+      log('Link diretto a un file video.');
+      return { ...withHeaders(stream, origin), title: titleFromMediaUrl(target) };
+    }
+  }
+
+  // TikTok senza login: la pagina pubblica manda al login, ma il player
+  // incorporato dichiara comunque il video mp4 nel tag <video>.
+  if (/(?:^|\/\/)(?:vm|vt)\.tiktok\.com\//i.test(target)) {
+    try {
+      const page = await request(target, 'https://www.tiktok.com/');
+      target = page.finalUrl || target;
+    } catch {
+      /* provo comunque l'ID presente nel link */
+    }
+  }
+  const tiktokId = tiktokVideoId(target);
+  if (tiktokId && browserAvailable()) {
+    log('Apro il player TikTok...');
+    try {
+      return await resolveGenericBrowser(`https://www.tiktok.com/embed/v2/${tiktokId}`, log);
+    } catch (error) {
+      log(`Player TikTok non disponibile: ${error.message}`);
+    }
+  }
+
+  let httpError = null;
+  try {
+    const found = await resolveGenericHttp(target, log);
+    if (found) return found;
+  } catch (error) {
+    httpError = error;
+  }
+
+  if (!browserAvailable()) {
+    if (httpError) throw httpError;
+    return null;
+  }
+
+  try {
+    return await resolveGenericBrowser(target, log);
+  } catch (error) {
+    if (httpError) {
+      throw new Error(`${error.message} — percorso diretto: ${httpError.message}`);
+    }
+    throw error;
+  }
+}
+
 module.exports = {
   UA,
   isSupported,
   isStreamingHost,
   isEmbedHost,
+  isPageHost,
   isPlaylistUrl,
   resolve,
+  resolveAuto,
   // esportati per i test
   titleFromHtml,
   extractEmbedUrl,
@@ -742,4 +1230,9 @@ module.exports = {
   extractPlaylist,
   extractStream,
   headersFor,
+  mediaCandidates,
+  pageCandidates,
+  verifyMedia,
+  tiktokVideoId,
+  titleFromMediaUrl,
 };

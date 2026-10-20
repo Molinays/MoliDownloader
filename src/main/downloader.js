@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
@@ -9,12 +10,46 @@ const { spawn, execFile } = require('child_process');
 const { EventEmitter } = require('events');
 const binaries = require('./binaries');
 const resolver = require('./resolver');
+const prefs = require('./settings');
 
-const MAX_ACTIVE = 2;
 const jobs = new Map();
 const queue = [];
 let active = 0;
 const emitter = new EventEmitter();
+
+/** Download attivi insieme: valore scelto nelle impostazioni (default 2). */
+function maxActive() {
+  try {
+    const value = Number(prefs.get().maxParallel);
+    if (Number.isFinite(value) && value > 0) return Math.min(8, Math.max(1, value));
+  } catch {
+    /* impostazioni non ancora leggibili: resta il default */
+  }
+  return 2;
+}
+
+/** Browser installati di cui yt-dlp può leggere i cookie. */
+function installedBrowsers() {
+  const local = process.env.LOCALAPPDATA || '';
+  const roaming = process.env.APPDATA || '';
+  const home = require('os').homedir();
+  const candidates = binaries.isWin
+    ? [
+        ['chrome', path.join(local, 'Google', 'Chrome', 'User Data')],
+        ['edge', path.join(local, 'Microsoft', 'Edge', 'User Data')],
+        ['firefox', path.join(roaming, 'Mozilla', 'Firefox', 'Profiles')],
+        ['brave', path.join(local, 'BraveSoftware', 'Brave-Browser', 'User Data')],
+        ['opera', path.join(roaming, 'Opera Software', 'Opera Stable')],
+      ]
+    : [
+        ['chrome', path.join(home, '.config', 'google-chrome')],
+        ['edge', path.join(home, '.config', 'microsoft-edge')],
+        ['firefox', path.join(home, '.mozilla', 'firefox')],
+        ['brave', path.join(home, '.config', 'BraveSoftware', 'Brave-Browser')],
+        ['chromium', path.join(home, '.config', 'chromium')],
+      ];
+  return candidates.filter(([, dir]) => dir && fs.existsSync(dir)).map(([name]) => name);
+}
 
 function newId() {
   return crypto.randomBytes(4).toString('hex');
@@ -36,6 +71,7 @@ function publicJob(job) {
     size: job.size,
     files: job.files,
     error: job.error,
+    note: job.note || '',
     resolvedFrom: job.resolvedFrom || '',
     createdAt: job.createdAt,
     startedAt: job.startedAt,
@@ -96,6 +132,34 @@ function safeFileName(value) {
   return cleaned.slice(0, 120);
 }
 
+/** Titoli dei player che non dicono nulla sul video: meglio il link. */
+const GENERIC_TITLES = /^(?:vixcloud|vixsrc|megaplay|player|video|stream|playlist|master|index|untitled|home|watch)$/i;
+
+function usableTitle(value) {
+  const clean = safeFileName(value);
+  return clean && !GENERIC_TITLES.test(clean) ? clean : '';
+}
+
+/** Titolo leggibile ricavato dal link, quando la pagina non ne dichiara uno. */
+function titleFromUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const last = decodeURIComponent(segments.pop() || '').replace(/\.(?:html?|php|m3u8|mp4)$/i, '');
+    const cleaned = last.replace(/[-_.]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!cleaned || /^\d+$/.test(cleaned)) return '';
+    const words = cleaned.split(' ').map((word) => {
+      const lower = word.toLowerCase();
+      if (['ita', 'sub', 'hd', '4k', 'ova'].includes(lower)) return lower.toUpperCase();
+      if (lower === 'ep' || lower === 'episode') return 'Episodio';
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    });
+    return safeFileName(words.join(' '));
+  } catch {
+    return '';
+  }
+}
+
 function parseClock(clock) {
   if (!clock) return '';
   const match = String(clock).trim().match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
@@ -110,7 +174,10 @@ function handleLine(job, rawLine) {
 
   if (line.startsWith('TITLE|')) {
     const title = line.slice(6).trim();
-    if (title) job.title = title;
+    // Per i link dei player yt-dlp vede solo il nome della playlist: resta il
+    // titolo letto dalla pagina del sito.
+    if (title && (!job.resolvedFrom || !usableTitle(job.title))) job.title = title;
+    if (usableTitle(job.title)) job.artifactPrefix = usableTitle(job.title);
     emit(job, true);
     return;
   }
@@ -160,14 +227,16 @@ function handleLine(job, rawLine) {
 function buildArgs(url, settings, ytdlpPath, ffmpegDir, jsRuntime, extra = {}) {
   const outputDir = (settings.output_dir || '').trim() || path.join(require('os').homedir(), 'Downloads');
   const fallbackTemplate = (settings.output_template || '%(title)s.%(ext)s').trim() || '%(title)s.%(ext)s';
-  const title = safeFileName(extra.title);
-  const template = title ? `${title}.%(ext)s` : fallbackTemplate;
+  const title = usableTitle(extra.title);
+  // Il titolo della pagina è il nome del file: il flusso HLS da solo
+  // porterebbe il nome dell'id del CDN (es. 74657.mp4).
+  const template = title ? `${title.replace(/%/g, '%%')}.%(ext)s` : fallbackTemplate;
   fs.mkdirSync(outputDir, { recursive: true });
 
   const fmt = settings.format === 'audio' ? 'audio' : 'video';
   const quality = String(settings.quality || 'best');
   const retries = Math.max(1, Math.min(99, parseInt(settings.retries, 10) || 10));
-  const fragments = Math.max(1, Math.min(16, parseInt(settings.concurrent_fragments, 10) || 4));
+  const fragments = Math.max(1, Math.min(16, parseInt(settings.concurrent_fragments, 10) || 8));
   const args = [
     '--color',
     'no_color',
@@ -189,9 +258,18 @@ function buildArgs(url, settings, ytdlpPath, ffmpegDir, jsRuntime, extra = {}) {
     String(retries),
     '--concurrent-fragments',
     String(fragments),
+    // YouTube (e altri CDN) limitano la velocità di ogni singola richiesta:
+    // scaricare a blocchi da 10 MB e con un buffer più grande evita il throttle.
+    '--http-chunk-size',
+    '10M',
+    '--buffer-size',
+    '1M',
     '--socket-timeout',
     '30',
   ];
+  // File temporanei (.part, .ytdl, frammenti) fuori dalla cartella di output:
+  // se il download viene annullato si eliminano senza lasciare residui.
+  if (extra.tempDir) args.push('--paths', `temp:${extra.tempDir}`);
 
   if (ffmpegDir) {
     args.push('--ffmpeg-location', ffmpegDir);
@@ -248,12 +326,17 @@ function buildArgs(url, settings, ytdlpPath, ffmpegDir, jsRuntime, extra = {}) {
     if (settings.embed_subs) args.push('--embed-subs');
   }
   if (settings.embed_thumb) args.push('--embed-thumbnail');
-  if (settings.metadata) args.push('--embed-metadata');
+  if (settings.metadata) {
+    args.push('--embed-metadata');
+    // Nelle proprietà del file deve restare solo il nome: niente campo Titolo.
+    args.push('--replace-in-metadata', 'post_process:title', '.*', '');
+  }
   if (settings.sponsorblock) {
     args.push('--sponsorblock-remove', 'sponsor,intro,outro,selfpromo,interaction');
   }
   if ((settings.rate_limit || '').trim()) args.push('-r', settings.rate_limit.trim());
   if ((settings.cookies_from || '').trim()) args.push('--cookies-from-browser', settings.cookies_from.trim());
+  if (extra.cookies) args.push('--cookies-from-browser', extra.cookies);
   if ((settings.proxy || '').trim()) args.push('--proxy', settings.proxy.trim());
   if (settings.geo_bypass) args.push('--geo-bypass');
 
@@ -289,50 +372,10 @@ function killTree(proc) {
   }
 }
 
-async function runJob(job) {
-  active += 1;
-  job.status = 'running';
-  job.startedAt = Date.now();
-  emit(job, true);
-
-  let proc = null;
-  try {
-    const tools = await binaries.ensureToolLinks();
-    const current = binaries.getBinaries();
-    const ytdlp = current.ytdlp;
-    if (!ytdlp.path) {
-      throw new Error('yt-dlp non trovato. Aggiorna i binari dalle impostazioni.');
-    }
-
-    let targetUrl = job.url;
-    let extra = {};
-    if (resolver.isSupported(job.url)) {
-      addLog(job, `[app] Risoluzione del link di ${new URL(job.url).hostname}`);
-      let resolved = null;
-      let resolveError = null;
-      for (let attempt = 0; attempt < 2 && !resolved; attempt += 1) {
-        if (attempt > 0) {
-          addLog(job, '[app] Nuovo tentativo di risoluzione...');
-          await new Promise((resolve) => setTimeout(resolve, 2500));
-        }
-        try {
-          resolved = await resolver.resolve(job.url, (line) => addLog(job, `[resolve] ${line}`));
-        } catch (error) {
-          resolveError = error;
-        }
-      }
-      if (!resolved) throw resolveError;
-      targetUrl = resolved.url;
-      extra = { title: resolved.title, headers: resolved.headers };
-      if (resolved.title && !job.title) job.title = resolved.title;
-      job.resolvedFrom = job.url;
-      emit(job, true);
-    }
-
-    const args = buildArgs(targetUrl, job.settings, ytdlp.path, tools.binDir, process.execPath, extra);
-    addLog(job, `[app] yt-dlp avviato (${args.includes('--no-playlist') ? 'video singolo' : 'playlist'})`);
-
-    proc = spawn(ytdlp.path, args, {
+/** Esegue yt-dlp e restituisce il codice di uscita. */
+function runYtDlp(job, executable, args) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(executable, args, {
       cwd: job.settings.output_dir || process.cwd(),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -351,31 +394,232 @@ async function runJob(job) {
     proc.stdout.on('data', consume);
     proc.stderr.on('data', consume);
 
-    const code = await new Promise((resolve, reject) => {
-      proc.on('error', reject);
-      proc.on('close', resolve);
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (buffer.trim()) handleLine(job, buffer);
+      resolve(code);
     });
+  });
+}
 
-    if (buffer.trim()) handleLine(job, buffer);
+function errorFromLog(job, from) {
+  const lines = job.log.slice(from);
+  const errorLine = [...lines].reverse().find((line) => /ERROR:|error:/i.test(line));
+  return errorLine ? errorLine.replace(/^ERROR:\s*/i, '').slice(0, 400) : '';
+}
+
+/** Risolve il link del sito con il resolver dedicato, con un nuovo tentativo. */
+async function resolveLink(job) {
+  let resolved = null;
+  let resolveError = null;
+  for (let attempt = 0; attempt < 2 && !resolved; attempt += 1) {
+    if (attempt > 0) {
+      addLog(job, '[app] Nuovo tentativo di risoluzione...');
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+    }
+    try {
+      resolved = await resolver.resolve(job.url, (line) => addLog(job, `[resolve] ${line}`));
+    } catch (error) {
+      resolveError = error;
+    }
+  }
+  if (!resolved) throw resolveError;
+  if (resolved.title && !job.title) job.title = resolved.title;
+  job.resolvedFrom = job.url;
+  emit(job, true);
+  return resolved;
+}
+
+/** Elimina i .part/.ytdl rimasti nella cartella di output dopo un annullamento. */
+function removeJobLeftovers(job, tempDir) {
+  if (tempDir) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* file già chiusi o cartella rimossa */
+    }
+  }
+  const prefix = String(job.artifactPrefix || '');
+  const outputDir = String((job.settings && job.settings.output_dir) || '').trim();
+  if (!prefix || !outputDir) return;
+  let names = [];
+  try {
+    names = fs.readdirSync(outputDir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith(prefix)) continue;
+    if (!/\.(?:part|ytdl|temp)(?:$|[.-])/i.test(name) && !/\.part-Frag\d+/i.test(name)) continue;
+    const file = path.join(outputDir, name);
+    try {
+      const stat = fs.statSync(file);
+      if (!stat.isFile()) continue;
+      // Non toccare file di altri download partiti prima di questo.
+      if (job.startedAt && stat.mtimeMs + 5000 < job.startedAt) continue;
+      fs.rmSync(file, { force: true });
+      addLog(job, `[app] Rimosso file parziale: ${name}`);
+    } catch {
+      /* file già rimosso dal processo */
+    }
+  }
+}
+
+async function runJob(job) {
+  active += 1;
+  job.status = 'running';
+  job.startedAt = Date.now();
+  job.note = '';
+  let tempDir = '';
+  emit(job, true);
+
+  try {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `molidowloader-${job.id}-`));
+    const tools = await binaries.ensureToolLinks();
+    const current = binaries.getBinaries();
+    const ytdlp = current.ytdlp;
+    if (!ytdlp.path) {
+      throw new Error('yt-dlp non trovato. Aggiorna i binari dalle impostazioni.');
+    }
+
+    const settings = job.settings || {};
+    let targetUrl = job.url;
+    let extra = {};
+    let resolvedOnce = false;
+
+    if (resolver.isSupported(job.url)) {
+      addLog(job, `[app] Risoluzione del link di ${new URL(job.url).hostname}`);
+      const resolved = await resolveLink(job);
+      targetUrl = resolved.url;
+      extra = { title: resolved.title, headers: resolved.headers };
+      resolvedOnce = true;
+    }
+
+    // Se il download fallisce, l'app riprova da sola con altre impostazioni:
+    // prima i cookie del browser (TikTok, Instagram, siti con accesso),
+    // poi la ricerca del vero flusso dentro la pagina (player nascosti).
+    const strategies = [{ label: 'impostazioni scelte', cookies: '' }];
+    const automatic = settings.auto_retry !== false;
+    const isTikTok = (() => {
+      try {
+        const host = new URL(job.url).hostname.toLowerCase();
+        return host === 'tiktok.com' || host.endsWith('.tiktok.com');
+      } catch {
+        return false;
+      }
+    })();
+    if (automatic) {
+      // TikTok: il player pubblico dà un solo mp4 con il titolo giusto, mentre
+      // yt-dlp sui link embed produce file doppi e nomi generici.
+      if (isTikTok) {
+        strategies.unshift({ label: 'player TikTok', resolve: true });
+        resolvedOnce = true;
+      }
+      const cookieSources = settings.cookie_fallback === false ? [] : installedBrowsers();
+      const chosen = String(settings.cookies_from || '').trim();
+      for (const browser of cookieSources) {
+        if (browser === chosen) continue;
+        strategies.push({ label: `cookie di ${browser}`, cookies: browser });
+        if (strategies.filter((strategy) => strategy.cookies).length >= 2) break;
+      }
+      if (!resolvedOnce) strategies.push({ label: 'ricerca del flusso nella pagina', resolve: true });
+    }
+
+    let failure = '';
+    for (let index = 0; index < strategies.length; index += 1) {
+      if (job.cancelled) break;
+      const strategy = strategies[index];
+      let attemptUrl = targetUrl;
+      let attemptExtra = { ...extra };
+
+      if (index > 0) {
+        job.note = strategy.label;
+        job.progress = 0;
+        job.speed = '';
+        job.eta = '';
+        addLog(job, `[app] Nuovo tentativo: ${strategy.label}`);
+        emit(job, true);
+      }
+      if (strategy.cookies) attemptExtra = { ...attemptExtra, cookies: strategy.cookies };
+
+      if (strategy.resolve) {
+        try {
+          const found = await resolver.resolveAuto(job.url, (line) => addLog(job, `[resolve] ${line}`));
+          if (!found || !found.url) {
+            failure = 'Nessun video trovato nella pagina: il sito non espone un flusso scaricabile.';
+            addLog(job, `[app] ${failure}`);
+            continue;
+          }
+          attemptUrl = found.url;
+          attemptExtra = {
+            title: found.title || attemptExtra.title || titleFromUrl(job.url),
+            headers: { ...(attemptExtra.headers || {}), ...(found.headers || {}) },
+          };
+          if (found.title) job.title = found.title;
+          job.resolvedFrom = job.url;
+          addLog(job, `[app] Flusso trovato (${new URL(found.url).hostname}).`);
+          emit(job, true);
+        } catch (error) {
+          failure = error && error.message ? error.message : String(error);
+          addLog(job, `[app] Ricerca del flusso non riuscita: ${failure}`);
+          continue;
+        }
+      }
+
+      if (!usableTitle(attemptExtra.title)) {
+        const inferred = titleFromUrl(job.url);
+        if (inferred) attemptExtra = { ...attemptExtra, title: inferred };
+      }
+
+      job.artifactPrefix = usableTitle(attemptExtra.title) || job.artifactPrefix || '';
+      const args = buildArgs(attemptUrl, settings, ytdlp.path, tools.binDir, process.execPath, {
+        ...attemptExtra,
+        tempDir,
+      });
+      addLog(
+        job,
+        `[app] yt-dlp avviato (${args.includes('--no-playlist') ? 'video singolo' : 'playlist'})${
+          strategy.cookies ? ` · cookie di ${strategy.cookies}` : ''
+        }`,
+      );
+      const logStart = job.log.length;
+      let code = -1;
+      try {
+        code = await runYtDlp(job, ytdlp.path, args);
+      } catch (error) {
+        addLog(job, `[app error] ${error && error.message ? error.message : error}`);
+      }
+      job.proc = null;
+
+      if (job.cancelled) {
+        job.status = 'cancelled';
+        break;
+      }
+      if (code === 0) {
+        job.status = 'done';
+        job.progress = 100;
+        job.eta = '';
+        job.note = '';
+        if (!job.files.length) {
+          for (const line of job.log) {
+            const file = line.match(/FILE\|(.+)$/);
+            if (file) addFile(job, file[1]);
+          }
+        }
+        break;
+      }
+
+      failure = errorFromLog(job, logStart) || `yt-dlp è terminato con codice ${code}`;
+      addLog(job, `[app] Tentativo non riuscito: ${failure}`);
+    }
 
     if (job.cancelled) {
       job.status = 'cancelled';
-    } else if (code === 0) {
-      job.status = 'done';
-      job.progress = 100;
-      job.eta = '';
-      if (!job.files.length) {
-        for (const line of job.log) {
-          const file = line.match(/FILE\|(.+)$/);
-          if (file) addFile(job, file[1]);
-        }
-      }
-    } else {
+    } else if (job.status !== 'done') {
       job.status = 'error';
-      const errorLine = [...job.log].reverse().find((line) => /ERROR:|error:/i.test(line));
-      job.error = errorLine
-        ? errorLine.replace(/^ERROR:\s*/i, '').slice(0, 400)
-        : `yt-dlp è terminato con codice ${code}`;
+      job.note = '';
+      job.error = failure || 'Download non riuscito.';
+      // I link dei player scadono: il messaggio aiuta a rifare la risoluzione.
       if (job.resolvedFrom && /403|401|forbidden|expired|token/i.test(`${job.error} ${job.log.join(' ')}`)) {
         job.error = `${job.error} — Il link del player potrebbe essere scaduto: riprova a risolverlo dal sito.`;
       }
@@ -383,9 +627,18 @@ async function runJob(job) {
   } catch (error) {
     job.status = job.cancelled ? 'cancelled' : 'error';
     job.error = job.error || (error && error.message ? error.message : String(error));
+    job.note = '';
     addLog(job, `[app error] ${job.error}`);
   } finally {
     job.proc = null;
+    if (job.cancelled) removeJobLeftovers(job, tempDir);
+    else if (tempDir) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        /* cartella già rimossa */
+      }
+    }
     job.finishedAt = Date.now();
     emit(job, true);
     active -= 1;
@@ -394,7 +647,7 @@ async function runJob(job) {
 }
 
 function schedule() {
-  while (active < MAX_ACTIVE && queue.length) {
+  while (active < maxActive() && queue.length) {
     const id = queue.shift();
     const job = jobs.get(id);
     if (!job || job.status !== 'queued') continue;
@@ -436,6 +689,7 @@ function start(payload) {
       size: '',
       files: [],
       error: '',
+      note: '',
       log: [],
       createdAt: Date.now(),
       startedAt: null,
@@ -498,6 +752,11 @@ module.exports = {
   get,
   clearFinished,
   onUpdate,
+  schedule,
+  maxActive,
   buildArgs,
+  titleFromUrl,
+  usableTitle,
+  installedBrowsers,
   toFileUrl,
 };

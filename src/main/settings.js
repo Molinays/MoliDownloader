@@ -2,9 +2,9 @@
 'use strict';
 
 /**
- * Cartelle di output dell'app. Ogni funzione ha la sua cartella, creata al
- * primo avvio dentro <Download di sistema>/MoliDowloader e modificabile
- * dall'utente: una stringa vuota significa "usa la predefinita".
+ * Impostazioni dell'app: le cartelle di output (una per funzione, dentro
+ * <Documenti>/MoliDowloader) e le preferenze dei download.
+ * Una cartella vuota significa "usa la predefinita".
  */
 
 const fs = require('fs');
@@ -17,13 +17,29 @@ const SUBFOLDERS = {
   compressDir: 'Compressioni',
   editorDir: 'Montaggi',
 };
-// Download e compressioni in Download, i montaggi esportati in Documenti.
+// Tutto in Documenti per impostazione predefinita: l'utente può cambiare
+// ogni cartella singolarmente dalle impostazioni.
 const SUBFOLDER_BASE = {
-  downloadsDir: 'downloads',
-  compressDir: 'downloads',
+  downloadsDir: 'documents',
+  compressDir: 'documents',
   editorDir: 'documents',
 };
 const KEYS = Object.keys(SUBFOLDERS);
+
+/** Preferenze numeriche o booleane, con limiti applicati in lettura. */
+const PREF_DEFAULTS = {
+  // Quanti download restano attivi insieme: il resto va in coda.
+  maxParallel: 2,
+  // Se un download fallisce, riprova da solo con altre impostazioni.
+  autoRetry: true,
+  // Nei tentativi automatici usa i cookie del browser installato.
+  cookieFallback: true,
+  // Tiene il titolo della pagina come nome del file (niente id del CDN).
+  keepTitle: true,
+};
+const PREF_LIMITS = {
+  maxParallel: { min: 1, max: 8 },
+};
 
 const bases = { downloads: '', documents: '' };
 let stored = null;
@@ -62,6 +78,15 @@ function cleanDir(value) {
   }
 }
 
+function cleanPref(key, value) {
+  const fallback = PREF_DEFAULTS[key];
+  if (typeof fallback === 'boolean') return typeof value === 'boolean' ? value : fallback;
+  const limit = PREF_LIMITS[key] || { min: 1, max: 8 };
+  const number = Number.parseInt(value, 10);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(limit.max, Math.max(limit.min, number));
+}
+
 function read() {
   if (stored) return stored;
   let file = {};
@@ -72,6 +97,7 @@ function read() {
   }
   stored = {};
   for (const key of KEYS) stored[key] = cleanDir(file[key]);
+  for (const key of Object.keys(PREF_DEFAULTS)) stored[key] = cleanPref(key, file[key]);
   return stored;
 }
 
@@ -90,6 +116,7 @@ function get() {
   const fallback = defaults();
   const result = {};
   for (const key of KEYS) result[key] = current[key] || fallback[key];
+  for (const key of Object.keys(PREF_DEFAULTS)) result[key] = cleanPref(key, current[key]);
   return result;
 }
 
@@ -98,6 +125,9 @@ function set(patch) {
   if (patch && typeof patch === 'object') {
     for (const key of KEYS) {
       if (Object.prototype.hasOwnProperty.call(patch, key)) current[key] = cleanDir(patch[key]);
+    }
+    for (const key of Object.keys(PREF_DEFAULTS)) {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) current[key] = cleanPref(key, patch[key]);
     }
   }
   persist();
@@ -120,4 +150,15 @@ function ensureAll() {
   return KEYS.map((key) => ensure(key));
 }
 
-module.exports = { KEYS, APP_FOLDER, setBase, defaults, get, set, ensure, ensureAll, settingsFile };
+module.exports = {
+  KEYS,
+  APP_FOLDER,
+  PREF_DEFAULTS,
+  setBase,
+  defaults,
+  get,
+  set,
+  ensure,
+  ensureAll,
+  settingsFile,
+};

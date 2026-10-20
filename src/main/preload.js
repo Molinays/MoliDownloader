@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('moli', {
   probeFile: (filePath) => ipcRenderer.invoke('editor:probe', filePath),
   exportProject: (project) => ipcRenderer.invoke('editor:export', project),
   cancelExport: () => ipcRenderer.invoke('editor:cancel'),
+  saveSnapshot: (payload) => ipcRenderer.invoke('editor:snapshot', payload),
 
   compressCatalog: () => ipcRenderer.invoke('compress:catalog'),
   scanGpu: (force) => ipcRenderer.invoke('compress:scan', force),

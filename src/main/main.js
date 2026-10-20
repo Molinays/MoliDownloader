@@ -63,7 +63,7 @@ function createWindow() {
     height: 880,
     minWidth: 1020,
     minHeight: 660,
-    backgroundColor: '#000000',
+    backgroundColor: '#080808',
     autoHideMenuBar: true,
     show: false,
     title: 'MoliDowloader',
@@ -155,7 +155,12 @@ function registerIpc() {
 
   ipcMain.handle('settings:get', () => settings.get());
 
-  ipcMain.handle('settings:set', (_event, patch) => settings.set(patch));
+  ipcMain.handle('settings:set', (_event, patch) => {
+    const saved = settings.set(patch);
+    // Il limite di download paralleli vale subito anche per la coda in corso.
+    downloader.schedule();
+    return saved;
+  });
 
   ipcMain.handle('dialog:pickFolder', async (event, current) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -345,6 +350,34 @@ function registerIpc() {
     } catch {
       return { ok: false };
     }
+  });
+
+  ipcMain.handle('editor:snapshot', async (_event, payload) => {
+    const dataUrl = String((payload && payload.dataUrl) || '');
+    const match = dataUrl.match(/^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) throw new Error('Istantanea non valida');
+    const buffer = Buffer.from(match[2], 'base64');
+    if (!buffer.length) throw new Error('Istantanea vuota');
+    if (buffer.length > 40 * 1024 * 1024) throw new Error('Istantanea troppo grande');
+    const extension = match[1] === 'jpeg' ? 'jpg' : 'png';
+    let baseDir = '';
+    try {
+      baseDir = app.getPath('pictures');
+    } catch {
+      baseDir = '';
+    }
+    if (!baseDir) baseDir = settings.ensure('editorDir') || defaultDownloads();
+    const dir = path.join(baseDir, 'MoliDowloader');
+    fs.mkdirSync(dir, { recursive: true });
+    const base = sanitizeName((payload && payload.name) || 'fotogramma') || 'fotogramma';
+    let target = path.join(dir, `${base}.${extension}`);
+    let counter = 1;
+    while (fs.existsSync(target)) {
+      target = path.join(dir, `${base}-${counter}.${extension}`);
+      counter += 1;
+    }
+    fs.writeFileSync(target, buffer);
+    return { ok: true, path: target, name: path.basename(target), size: buffer.length, dir };
   });
 
   ipcMain.handle('compress:catalog', () => hardware.catalog());

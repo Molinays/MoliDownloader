@@ -95,7 +95,17 @@ console.log(`      branch dev e tag backup-source-2.3.1 -> ${head.slice(0, 7)}`)
 console.log('[2/5] Creo il commit release-only...');
 const blob = git(['hash-object', '-w', '--stdin'], { input: readme });
 const tree = git(['mktree'], { input: `100644 blob ${blob}\tREADME.md\n` });
-const commit = git(['commit-tree', tree, '-m', 'Distribuzione: solo eseguibili (nessun sorgente)']);
+// Autore e committer fissati: il repo pubblico deve mostrare solo Molinays
+// tra i contributor, qualunque sia la configurazione git della macchina.
+const identity = {
+  GIT_AUTHOR_NAME: 'Molinays',
+  GIT_AUTHOR_EMAIL: 'giulio.molinelli01@gmail.com',
+  GIT_COMMITTER_NAME: 'Molinays',
+  GIT_COMMITTER_EMAIL: 'giulio.molinelli01@gmail.com',
+};
+const commit = git(['commit-tree', tree, '-m', 'Distribuzione: solo eseguibili (nessun sorgente)'], {
+  env: { ...process.env, ...identity },
+});
 git(['update-ref', 'refs/heads/release-only', commit]);
 console.log(`      commit ${commit.slice(0, 7)} con: ${git(['ls-tree', '-r', '--name-only', commit]).split('\n').filter(Boolean).join(', ')}`);
 

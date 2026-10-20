@@ -236,6 +236,34 @@ function killTree(child) {
   }
 }
 
+/** Effetti per clip: rotazione, flip, zoom e color correction. */
+function clipEffects(clip) {
+  const rotate = ((Math.round(num(clip.rotate, 0)) % 360) + 360) % 360;
+  const color = (clip && clip.color) || {};
+  const brightness = clamp(num(color.brightness, 0), -1, 1);
+  const contrast = clamp(num(color.contrast, 1), 0, 3);
+  const saturation = clamp(num(color.saturation, 1), 0, 3);
+  const gamma = clamp(num(color.gamma, 1), 0.1, 4);
+  const temperature = clamp(num(color.temperature, 6500), 1000, 20000);
+  return {
+    rotate: [0, 90, 180, 270].includes(rotate) ? rotate : 0,
+    flipH: Boolean(clip && clip.flipH),
+    flipV: Boolean(clip && clip.flipV),
+    zoom: clamp(num(clip.zoom, 1) || 1, 0.2, 3),
+    brightness,
+    contrast,
+    saturation,
+    gamma,
+    temperature,
+    hasColor:
+      brightness !== 0 ||
+      Math.abs(contrast - 1) > 0.001 ||
+      Math.abs(saturation - 1) > 0.001 ||
+      Math.abs(gamma - 1) > 0.001 ||
+      Math.round(temperature) !== 6500,
+  };
+}
+
 function buildExportPlan({ project, infos, target, fps, audioOnly }) {
   const args = ['-hide_banner', '-loglevel', 'error', '-y'];
   const inputs = [];
@@ -307,9 +335,16 @@ function buildExportPlan({ project, infos, target, fps, audioOnly }) {
 
     if (!audioOnly) {
       const videoFilters = [];
+      const effects = clipEffects(clip);
       if (info.hasVideo) {
         videoFilters.push(`trim=start=${fixed(clip.start)}:end=${fixed(clip.end)}`);
         videoFilters.push(`setpts=(PTS-STARTPTS)/${fixed(clip.speed)}`);
+        // Rotazione e flip dell'utente, prima del ridimensionamento.
+        if (effects.rotate === 90) videoFilters.push('transpose=1');
+        else if (effects.rotate === 180) videoFilters.push('transpose=1', 'transpose=1');
+        else if (effects.rotate === 270) videoFilters.push('transpose=2');
+        if (effects.flipH) videoFilters.push('hflip');
+        if (effects.flipV) videoFilters.push('vflip');
       } else {
         videoFilters.push('setpts=PTS-STARTPTS');
       }
@@ -320,6 +355,22 @@ function buildExportPlan({ project, infos, target, fps, audioOnly }) {
       } else {
         videoFilters.push(`scale=${width}:${height}:force_original_aspect_ratio=decrease`);
         videoFilters.push(`pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`);
+      }
+      if (info.hasVideo && Math.abs(effects.zoom - 1) > 0.001) {
+        videoFilters.push(`scale=iw*${fixed(effects.zoom, 4)}:ih*${fixed(effects.zoom, 4)}:flags=lanczos`);
+        videoFilters.push(
+          effects.zoom > 1
+            ? `crop=${width}:${height}`
+            : `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`,
+        );
+      }
+      if (info.hasVideo && effects.hasColor) {
+        videoFilters.push(
+          `eq=brightness=${fixed(effects.brightness, 3)}:contrast=${fixed(effects.contrast, 3)}:saturation=${fixed(effects.saturation, 3)}:gamma=${fixed(effects.gamma, 3)}`,
+        );
+        if (Math.round(effects.temperature) !== 6500) {
+          videoFilters.push(`colortemperature=temperature=${Math.round(effects.temperature)}`);
+        }
       }
       videoFilters.push('setsar=1');
       videoFilters.push(`fps=${fixed(totalFps, 3)}`);
@@ -554,6 +605,7 @@ module.exports = {
   createWaveform,
   buildExportPlan,
   exportMontage,
+  clipEffects,
   resolutionFor,
   fpsFor,
   parseRate,
