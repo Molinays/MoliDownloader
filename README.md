@@ -8,7 +8,7 @@
 The ultimate 100% local Windows suite to download from 1000+ sites, trim and edit your clips, and compress them with extreme GPU acceleration.
 
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_%7C_11_(x64)-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Molinays/MoliDownloader/releases/latest)
-[![Version](https://img.shields.io/badge/Version-v3.3.5-2563EB?style=for-the-badge)](https://github.com/Molinays/MoliDownloader/releases/latest)
+[![Version](https://img.shields.io/badge/Version-v3.4.3-2563EB?style=for-the-badge)](https://github.com/Molinays/MoliDownloader/releases/latest)
 [![Engine](https://img.shields.io/badge/yt--dlp_%2B_FFmpeg-Native-1E293B?style=for-the-badge)](https://ffmpeg.org)
 [![License](https://img.shields.io/badge/License-MIT-10B981?style=for-the-badge)](LICENSE)
 
