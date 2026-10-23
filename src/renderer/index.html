@@ -1226,6 +1226,26 @@
     </div>
   </div>
 
+  <div id="confirmModal" class="modal-overlay" aria-hidden="true">
+    <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="error-head">
+        <span class="error-icon" aria-hidden="true">?</span>
+        <div class="error-head-text">
+          <span class="error-code">PLEASE CONFIRM</span>
+          <h3 id="confirmTitle">Cancel this download?</h3>
+        </div>
+        <button id="btnCloseConfirm" class="btn-close" aria-label="Close">×</button>
+      </div>
+      <div class="error-body">
+        <p id="confirmMessage" class="error-message"></p>
+      </div>
+      <div class="error-actions">
+        <button id="btnConfirmKeep" class="btn-dl" type="button">Keep downloading</button>
+        <button id="btnConfirmCancel" class="btn-sm btn-cancel" type="button">Cancel download</button>
+      </div>
+    </div>
+  </div>
+
   <div id="dropOverlay" class="drop-overlay" aria-hidden="true">
     <div class="drop-overlay-card">
       <div class="drop-overlay-title">Drop to import</div>

@@ -1,4 +1,4 @@
-# MoliDowloader 3.4.0
+# MoliDowloader 3.4.2
 
 App desktop **Electron** che unisce un downloader universale, un piccolo editor video/audio e un compressore in stile HandBrake, tutti basati su **FFmpeg**.
 
@@ -19,7 +19,7 @@ App desktop **Electron** che unisce un downloader universale, un piccolo editor 
 - Playlist, sottotitoli, embed cover/metadata, SponsorBlock, geo-bypass, proxy, rate limit, retry, frammenti paralleli.
 - Cookie da Chrome/Firefox/Edge/Brave/Opera per contenuti che richiedono login (Instagram, TikTok privati, ecc.).
 - Link dei siti con player protetto (StreamingCommunity e mirror): il resolver legge la pagina del sito, segue l'iframe fino al player VixCloud e recupera la playlist HLS con token ed expires, poi la passa a yt-dlp. Accetta anche il link del player o della playlist incollato direttamente. Se il sito rifiuta le richieste dirette, il player viene caricato in una finestra Electron nascosta (JavaScript e cookie veri) e il flusso viene letto da lì.
-- Log in tempo reale, annullamento, apertura cartella e passaggio diretto all'editor.
+- Log in tempo reale, annullamento con conferma in tema, apertura cartella e passaggio diretto all'editor.
 - **Spotify**: link `open.spotify.com` anche con prefisso di lingua (`/it/`, `/intl-it/`) o parametro `?si=`. Playlist e album vengono espansi nell'embed pubblico e ogni brano viene cercato su YouTube con artista e titolo; una traccia singola non viene più mostrata come playlist da 1 elemento.
 - **Twitch**: per le VOD servite con la sola traccia audio, l'app chiede il token pubblico alla API web, legge il manifest usher e usa la rendition *chunked* dello stesso CDN (video e audio insieme) al posto del solo audio.
 - Aggiornamento di yt-dlp integrato nell'app.

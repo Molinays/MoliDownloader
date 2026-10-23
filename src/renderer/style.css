@@ -2348,52 +2348,52 @@ input[type=number]:focus {
 .mode-toggle:hover { color: var(--ink); border-color: var(--glass-border-hover); background: var(--glass-bg-hover); }
 .mode-toggle .mode-dot { color: var(--blue2); }
 
-#ezPanel { display: none; overflow-y: auto; padding: 40px 32px; }
+#ezPanel { display: none; overflow-y: auto; padding: 26px 24px 32px; }
 body.ez-mode #ezPanel { display: block; }
 body.ez-mode #viewDownload .left { display: none; }
 body.ez-mode .view-tabs { display: none; }
 
-.ez-panel .ez-head { max-width: 680px; margin: 0 auto 22px; }
+.ez-panel .ez-head { max-width: 620px; margin: 0 auto 16px; }
 .ez-kicker {
   display: inline-block;
-  font: 700 10px var(--mono);
+  font: 700 9.5px var(--mono);
   letter-spacing: .12em;
   text-transform: uppercase;
   color: var(--blue2);
-  margin-bottom: 10px;
+  margin-bottom: 7px;
 }
-.ez-head h1 { font-size: clamp(28px, 3.2vw, 40px); line-height: 1.12; letter-spacing: -.02em; color: var(--ink); }
-.ez-lead { margin-top: 10px; color: var(--text2); font-size: 15px; max-width: 52ch; }
+.ez-head h1 { font-size: clamp(22px, 2.4vw, 29px); line-height: 1.15; letter-spacing: -.02em; color: var(--ink); }
+.ez-lead { margin-top: 6px; color: var(--text2); font-size: 13px; max-width: 52ch; }
 
 .ez-card {
-  max-width: 680px;
+  max-width: 620px;
   margin: 0 auto;
   border: 1px solid var(--glass-border);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--glass-bg);
-  padding: 24px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 11px;
 }
 .ez-step {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: var(--ink);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 .ez-step:first-child { margin-top: 0; }
 .ez-step-num {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--blue-soft);
   border: 1px solid var(--blue-mid);
   color: var(--blue);
-  font: 700 12px var(--mono);
+  font: 700 10.5px var(--mono);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2402,35 +2402,35 @@ body.ez-mode .view-tabs { display: none; }
 .ez-input {
   width: 100%;
   resize: vertical;
-  min-height: 92px;
+  min-height: 72px;
   border: 1px solid var(--glass-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(10, 10, 10, .6);
   color: var(--text);
-  padding: 14px 16px;
-  font: 14px/1.5 var(--mono);
+  padding: 10px 12px;
+  font: 12.5px/1.5 var(--mono);
   outline: none;
 }
 .ez-input:focus { border-color: var(--blue-mid); background: rgba(10, 10, 10, .85); }
 .ez-input::placeholder { color: var(--text3); }
-.ez-help { font-size: 12px; color: var(--text3); margin-top: -6px; }
+.ez-help { font-size: 11px; color: var(--text3); margin-top: -4px; }
 
-.ez-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ez-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ez-choice {
   text-align: left;
   border: 1px solid var(--glass-border);
   background: rgba(255, 255, 255, .02);
-  border-radius: 10px;
-  padding: 14px 16px;
+  border-radius: 8px;
+  padding: 10px 12px;
   color: var(--text2);
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   transition: all .2s ease;
 }
-.ez-choice strong { color: var(--ink); font-size: 15px; }
-.ez-choice span { font-size: 12px; color: var(--text3); }
+.ez-choice strong { color: var(--ink); font-size: 13px; }
+.ez-choice span { font-size: 11px; color: var(--text3); }
 .ez-choice:hover { border-color: var(--glass-border-hover); }
 .ez-choice.active { border-color: var(--blue-mid); background: var(--blue-soft); }
 
@@ -2438,47 +2438,47 @@ body.ez-mode .view-tabs { display: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
   border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  padding: 12px 14px;
+  border-radius: 8px;
+  padding: 8px 12px;
 }
-.ez-row label, .ez-row-label { font-size: 12px; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; font-family: var(--mono); }
+.ez-row label, .ez-row-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; font-family: var(--mono); }
 .ez-row select {
   background: var(--bg3);
   color: var(--text);
   border: 1px solid var(--glass-border);
   border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 14px;
-  min-width: 180px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  min-width: 150px;
 }
-.ez-folder-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ez-folder-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ez-folder-path {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 420px;
+  max-width: 360px;
 }
 
 .ez-download {
   width: 100%;
   border: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--blue2);
   color: #050505;
-  font: 800 17px var(--sans);
+  font: 800 15px var(--sans);
   letter-spacing: .01em;
-  padding: 18px 24px;
+  padding: 13px 20px;
   cursor: pointer;
   transition: filter .2s ease, transform .1s ease;
 }
 .ez-download:hover { filter: brightness(1.08); }
 .ez-download:active { transform: translateY(1px); }
 .ez-download:disabled { opacity: .6; cursor: wait; }
-.ez-tip { font-size: 12px; color: var(--text3); line-height: 1.55; }
+.ez-tip { font-size: 11px; color: var(--text3); line-height: 1.5; }
 
 body.ez-mode .right { background: rgba(5, 5, 5, .55); }
 body.ez-mode .job-url { font-size: 13px; }
@@ -2567,6 +2567,9 @@ body.ez-mode .empty-state { padding: 40px 12px; }
    POPUP ERRORE IN TEMA
    ========================================= */
 .error-modal { max-width: 520px; }
+.confirm-modal { max-width: 430px; }
+.confirm-modal .error-actions .btn-dl { padding: 8px 14px; font-size: 12px; }
+.confirm-modal .error-actions .btn-sm { padding: 8px 12px; }
 .error-head {
   display: flex;
   align-items: flex-start;

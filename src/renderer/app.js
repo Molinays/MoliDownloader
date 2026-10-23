@@ -309,6 +309,41 @@ function closeError() {
   state.errorJobId = '';
 }
 
+/* Conferma in tema: al posto del popup di Windows. */
+let confirmResolve = null;
+
+function openConfirm(options = {}) {
+  const modal = $('confirmModal');
+  if (!modal) {
+    return Promise.resolve(window.confirm(`${options.title || 'Are you sure?'}\n\n${options.message || ''}`));
+  }
+  return new Promise((resolve) => {
+    if (confirmResolve) confirmResolve(false);
+    $('confirmTitle').textContent = options.title || 'Are you sure?';
+    const message = $('confirmMessage');
+    message.textContent = options.message || '';
+    message.hidden = !options.message;
+    $('btnConfirmCancel').textContent = options.confirmLabel || 'Confirm';
+    $('btnConfirmKeep').textContent = options.keepLabel || 'Keep';
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    confirmResolve = resolve;
+    setTimeout(() => {
+      if (confirmResolve === resolve) $('btnConfirmKeep').focus();
+    }, 30);
+  });
+}
+
+function closeConfirm(result) {
+  const modal = $('confirmModal');
+  if (!modal) return;
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  if (resolve) resolve(Boolean(result));
+}
+
 async function signInFromError() {
   const info = state.errorInfo;
   if (!info || !info.loginUrl) return;
@@ -515,6 +550,12 @@ function bindEvents() {
   $('logModal').addEventListener('click', (event) => {
     if (event.target === $('logModal')) closeLog();
   });
+  $('btnCloseConfirm').addEventListener('click', () => closeConfirm(false));
+  $('btnConfirmKeep').addEventListener('click', () => closeConfirm(false));
+  $('btnConfirmCancel').addEventListener('click', () => closeConfirm(true));
+  $('confirmModal').addEventListener('click', (event) => {
+    if (event.target === $('confirmModal')) closeConfirm(false);
+  });
 
   $('urlInput').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -628,6 +669,7 @@ function bindEvents() {
     if (event.key === 'Escape') {
       closeError();
       closeLog();
+      closeConfirm(false);
     }
     if (state.view !== 'editor') return;
     const tag = (document.activeElement && document.activeElement.tagName) || '';
@@ -1286,7 +1328,18 @@ function onJobsClick(event) {
 }
 
 async function cancelJob(id) {
-  if (!id || !window.confirm('Cancel this download?')) return;
+  if (!id) return;
+  const job = state.jobs.get(id);
+  const label = job ? job.title || shortenUrl(job.url) : '';
+  const confirmed = await openConfirm({
+    title: 'Cancel this download?',
+    message: label
+      ? `"${label}" will stop and the partial file will be deleted.`
+      : 'The download will stop and the partial file will be deleted.',
+    confirmLabel: 'Cancel download',
+    keepLabel: 'Keep downloading',
+  });
+  if (!confirmed) return;
   try {
     await api.cancelDownload(id);
     toast('Download cancelled');

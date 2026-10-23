@@ -210,7 +210,7 @@ async function run() {
     });
     await assert.rejects(
       () => resolver.resolve('https://streamingcommunityz.shiksha/it/watch/1'),
-      /Nessun player trovato|Richiesta diretta rifiutata/,
+      /Nessun player trovato|Richiesta diretta rifiutata|No player found|Direct request rejected/i,
       'pagina senza player non segnalata',
     );
     console.log('ok - pagina senza player gestita');
@@ -226,7 +226,7 @@ async function run() {
     });
     await assert.rejects(
       () => resolver.resolve('https://vixcloud.co/embed/1'),
-      /Playlist non trovata|Richiesta diretta rifiutata/,
+      /Playlist non trovata|Richiesta diretta rifiutata|Playlist not found|Direct request rejected/i,
       'player senza playlist non segnalato',
     );
     console.log('ok - player senza playlist gestito');
@@ -354,7 +354,9 @@ async function run() {
       { title: 'Attack on Titan OVA', headers: {} },
     );
     const output = args[args.indexOf('-o') + 1];
-    assert.strictEqual(output, path.join(outDir, 'Attack on Titan OVA.%(ext)s'), 'nome file dal titolo errato');
+    // Il template resta relativo: la cartella finale arriva da --paths home.
+    assert.strictEqual(output, 'Attack on Titan OVA.%(ext)s', 'nome file dal titolo errato');
+    assert.ok(args.includes(`home:${outDir}`), 'cartella di output mancante dai --paths');
     const withoutTitle = downloader.buildArgs(
       'https://cdn.vixcloud.co/hls/74657/master.m3u8?token=x',
       { output_dir: outDir, output_template: '%(title)s.%(ext)s' },
@@ -365,12 +367,13 @@ async function run() {
     );
     assert.strictEqual(
       withoutTitle[withoutTitle.indexOf('-o') + 1],
-      path.join(outDir, '%(title)s.%(ext)s'),
+      '%(title)s.%(ext)s',
       'template di fallback non rispettato',
     );
+    assert.ok(withoutTitle.includes(`home:${outDir}`), 'cartella di output mancante dal fallback');
     assert.strictEqual(
       downloader.titleFromUrl('https://animesaturn.ro/one-piece-ita-episode-940/'),
-      'One Piece ITA Episodio 940',
+      'One Piece ITA Episode 940',
       'titolo ricavato dal link errato',
     );
     console.log('ok - nome del file dal titolo della pagina');
