@@ -118,11 +118,11 @@ function isForced(stream) {
 function probeSource(ffprobePath, filePath) {
   return new Promise((resolve, reject) => {
     if (!ffprobePath) {
-      reject(new Error('ffprobe non trovato'));
+      reject(new Error('ffprobe not found'));
       return;
     }
     if (!filePath || !fs.existsSync(filePath)) {
-      reject(new Error(`File non trovato: ${filePath || '(vuoto)'}`));
+      reject(new Error(`File not found: ${filePath || '(empty)'}`));
       return;
     }
     const child = spawn(
@@ -150,7 +150,7 @@ function probeSource(ffprobePath, filePath) {
     child.on('error', reject);
     child.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(stderr.trim() || `ffprobe ha restituito ${code}`));
+        reject(new Error(stderr.trim() || `ffprobe returned ${code}`));
         return;
       }
       try {
@@ -345,8 +345,8 @@ function buildVideoFilters(source, options, burnTrack) {
   const right = safeInt(crop.right, 0, 10000, 0);
   if (top || bottom || left || right) {
     const video = source.videoTracks[0] || {};
-    if (video.width && left + right >= video.width) throw new Error('Crop orizzontale troppo grande per questo video');
-    if (video.height && top + bottom >= video.height) throw new Error('Crop verticale troppo grande per questo video');
+    if (video.width && left + right >= video.width) throw new Error('Horizontal crop is too large for this video');
+    if (video.height && top + bottom >= video.height) throw new Error('Vertical crop is too large for this video');
     filters.push(`crop=iw-${left + right}:ih-${top + bottom}:${left}:${top}`);
     filters.push('scale=trunc(iw/2)*2:trunc(ih/2)*2');
   }
@@ -406,7 +406,7 @@ function addRateControl(args, encoder, options) {
     return mode;
   }
 
-  if (!bitrate) throw new Error('Inserisci un bitrate video valido');
+  if (!bitrate) throw new Error('Enter a valid video bitrate');
   const rate = `${bitrate}k`;
   const max = maxrate ? `${maxrate}k` : '';
   const buffer = bufsize ? `${bufsize}k` : '';
@@ -437,7 +437,7 @@ function addRateControl(args, encoder, options) {
   }
 
   if (mode === 'twopass' && !encoder.twoPass) {
-    throw new Error('Questo encoder non supporta il 2-pass');
+    throw new Error('This encoder does not support two-pass');
   }
   return mode;
 }
@@ -452,9 +452,9 @@ function resolvePixelFormat(encoder, videoTrack, requested) {
 }
 
 function buildVideoArgs(encoderId, options) {
-  if (!VIDEO_ENCODER_IDS.has(encoderId)) throw new Error(`Encoder video non valido: ${encoderId}`);
+  if (!VIDEO_ENCODER_IDS.has(encoderId)) throw new Error(`Invalid video encoder: ${encoderId}`);
   const encoder = require('./hardware').encoderById(encoderId);
-  if (!encoder) throw new Error(`Encoder video non supportato: ${encoderId}`);
+  if (!encoder) throw new Error(`Unsupported video encoder: ${encoderId}`);
 
   const args = ['-c:v', encoderId];
   let preset = safeString(options.preset, 32);
@@ -516,10 +516,10 @@ function buildAudioSelection(source, options, container) {
   if (!tracks.length) return { tracks: [], merge: false, codec: 'copy', warnings: [] };
   if (merge && codec === 'copy') codec = 'aac';
   if (!audioCodecSupported(codec, container)) {
-    throw new Error(`Il codec audio "${codec}" non è compatibile con ${container.toUpperCase()}`);
+    throw new Error(`Audio codec "${codec}" is not compatible with ${container.toUpperCase()}`);
   }
   if (merge && !['aac', 'libopus', 'ac3', 'eac3', 'libmp3lame', 'flac', 'libvorbis'].includes(codec)) {
-    throw new Error('Per unire le tracce audio scegli un codec di codifica, non "Copia"');
+    throw new Error('To merge audio tracks, choose an encoding codec instead of "Copy"');
   }
 
   let loudnorm = Boolean(options.audioLoudnorm);
@@ -529,12 +529,12 @@ function buildAudioSelection(source, options, container) {
   }
   if (loudnorm && !merge && tracks.length > 1) {
     loudnorm = false;
-    warnings.push('Normalizzazione volume saltata: con più tracce audio attiva “Unisci le tracce”.');
+    warnings.push('Volume normalization skipped: with multiple audio tracks, enable "Merge tracks".');
   }
 
   const bitrate = safeInt(options.audioBitrate, 8, 1024, 128);
   if (codec !== 'copy' && codec !== 'flac' && !bitrate) {
-    throw new Error('Inserisci un bitrate audio valido');
+    throw new Error('Enter a valid audio bitrate');
   }
 
   const warnings = [];
@@ -544,7 +544,7 @@ function buildAudioSelection(source, options, container) {
     );
     if (incompatible.length) {
       warnings.push(
-        `Alcune tracce audio (${incompatible.map((track) => track.codec).join(', ')}) potrebbero non essere compatibili con MP4 in modalità copia.`,
+        `Some audio tracks (${incompatible.map((track) => track.codec).join(', ')}) may not be compatible with MP4 in copy mode.`,
       );
     }
   }
@@ -608,7 +608,7 @@ function buildSubtitleSelection(source, options, container) {
     const codec = subtitleTarget(container, track);
     if (!codec) {
       warnings.push(
-        `Sottotitoli ${track.language || track.codec} non compatibili con ${container.toUpperCase()} (${track.codec}) e verranno saltati.`,
+        `Subtitles ${track.language || track.codec} are not compatible with ${container.toUpperCase()} (${track.codec}) and will be skipped.`,
       );
       continue;
     }
@@ -646,23 +646,23 @@ function estimatePlan(source, options, selection, encoder) {
 
 function buildCompressPlan({ source, options, outputPath }) {
   if (!source || !source.videoTracks || !source.videoTracks.length) {
-    throw new Error('Il file non contiene una traccia video');
+    throw new Error('The file has no video track');
   }
   if (typeof outputPath !== 'string' || !outputPath || outputPath.includes('\u0000')) {
-    throw new Error('Scegli un file di output valido');
+    throw new Error('Choose a valid output file');
   }
 
   const container = containerOf(options);
   const encoderId = String(options.videoEncoder || 'libx265');
   if (!videoEncoderSupported(encoderId, container)) {
-    throw new Error(`L'encoder ${encoderId} non è compatibile con ${container.toUpperCase()}`);
+    throw new Error(`The ${encoderId} encoder is not compatible with ${container.toUpperCase()}`);
   }
 
   const videoTrackIndex = Number.isFinite(Number(options.videoTrack))
     ? Number(options.videoTrack)
     : source.videoTracks[0].index;
   const videoTrack = source.videoTracks.find((track) => track.index === videoTrackIndex);
-  if (!videoTrack) throw new Error('Traccia video non trovata');
+  if (!videoTrack) throw new Error('Video track not found');
 
   const totalDuration = Math.max(0, num(source.duration));
   const rangeStart = clamp(num(options.startTime), 0, Math.max(0, totalDuration - 0.1));
@@ -694,7 +694,7 @@ function buildCompressPlan({ source, options, outputPath }) {
     ? source.subtitleTracks.find((track) => track.index === burnIndex && track.text) || null
     : null;
   if (selectedOptions.burnSubtitles && !burnTrack) {
-    warnings.push('Sottotitoli da bruciare non trovati: nessuna traccia testuale selezionata.');
+    warnings.push('No subtitles to burn: no text track selected.');
   }
 
   const subtitleOptions = {
@@ -868,11 +868,11 @@ function buildCompressPlan({ source, options, outputPath }) {
 function detectCrop(ffmpegPath, sourcePath, options = {}) {
   return new Promise((resolve, reject) => {
     if (!ffmpegPath) {
-      reject(new Error('FFmpeg non trovato'));
+      reject(new Error('FFmpeg not found'));
       return;
     }
     if (!sourcePath || !fs.existsSync(sourcePath)) {
-      reject(new Error('Video non trovato'));
+      reject(new Error('Video not found'));
       return;
     }
     const total = Math.max(0, num(options.duration));
@@ -912,7 +912,7 @@ function detectCrop(ffmpegPath, sourcePath, options = {}) {
       const matches = [...stderr.matchAll(/crop=(\d+):(\d+):(\d+):(\d+)/g)];
       const last = matches[matches.length - 1];
       if (!last) {
-        if (code !== 0) reject(new Error(`Analisi non riuscita (codice ${code})`));
+        if (code !== 0) reject(new Error(`Analysis failed (code ${code})`));
         else resolve({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 });
         return;
       }
@@ -1031,7 +1031,7 @@ function runFfmpeg(ffmpegPath, args, { plan, pass, range, onProgress, logLabel }
       if (code === 0) resolve();
       else {
         const details = stderrChunks.join('').trim().split(/\r?\n/).slice(-8).join(' ');
-        reject(new Error(details || `${logLabel || 'FFmpeg'} ha restituito ${code}`));
+        reject(new Error(details || `${logLabel || 'FFmpeg'} returned ${code}`));
       }
     });
   });
@@ -1039,7 +1039,7 @@ function runFfmpeg(ffmpegPath, args, { plan, pass, range, onProgress, logLabel }
 
 function friendlyHardwareError(error, encoderId) {
   const message = String((error && error.message) || error || '');
-  if (message.startsWith("L'encoder GPU")) return error;
+  if (message.includes('GPU encoder is not available')) return error;
   if (
     !SOFTWARE_ENCODERS.has(encoderId) &&
     /no capable devices|error while opening encoder|failed to open|error creating a .*session|not supported|cannot load|no device/i.test(
@@ -1047,7 +1047,7 @@ function friendlyHardwareError(error, encoderId) {
     )
   ) {
     return new Error(
-      `L'encoder GPU ${encoderId} non è disponibile su questo sistema. Fai una nuova scansione GPU o scegli un encoder software. Dettaglio: ${message}`,
+      `The ${encoderId} GPU encoder is not available on this system. Run a new GPU scan or choose a software encoder. Detail: ${message}`,
     );
   }
   return error;
@@ -1061,22 +1061,22 @@ function compressVideo({ ffmpegPath, ffprobePath, sourcePath, options, outputPat
   let tempOutput = null;
 
   const promise = (async () => {
-    if (!ffmpegPath) throw new Error('FFmpeg non trovato');
-    if (!ffprobePath) throw new Error('ffprobe non trovato');
+    if (!ffmpegPath) throw new Error('FFmpeg not found');
+    if (!ffprobePath) throw new Error('ffprobe not found');
     if (typeof sourcePath !== 'string' || !sourcePath || !fs.existsSync(sourcePath)) {
-      throw new Error('Scegli un video da comprimere');
+      throw new Error('Choose a video to compress');
     }
     if (typeof outputPath !== 'string' || !outputPath || outputPath.includes('\u0000')) {
-      throw new Error('Scegli un file di output valido');
+      throw new Error('Choose a valid output file');
     }
     const resolvedOutput = path.resolve(outputPath);
-    if (resolvedOutput.length > 4096) throw new Error('Percorso di output troppo lungo');
+    if (resolvedOutput.length > 4096) throw new Error('Output path is too long');
     if (path.resolve(sourcePath) === resolvedOutput) {
-      throw new Error('Il file di output non può essere lo stesso del file di input');
+      throw new Error('The output file cannot be the same as the input file');
     }
 
     const source = await probeSource(ffprobePath, sourcePath);
-    if (!source.hasVideo) throw new Error('Il file selezionato non contiene video');
+    if (!source.hasVideo) throw new Error('The selected file has no video');
     const plan = buildCompressPlan({ source, options, outputPath });
     const warnings = [...plan.warnings];
     const outputDir = path.dirname(outputPath);
@@ -1144,11 +1144,11 @@ function compressVideo({ ffmpegPath, ffprobePath, sourcePath, options, outputPat
             if (code === 0) resolve();
             else {
               const details = stderrChunks.join('').trim().split(/\r?\n/).slice(-8).join(' ');
-              reject(new Error(details || 'Prima passata FFmpeg fallita'));
+              reject(new Error(details || 'First FFmpeg pass failed'));
             }
           });
         });
-        if (cancelled) throw new Error('Compressione annullata');
+        if (cancelled) throw new Error('Compression cancelled');
       }
 
       const runFinal = (args) =>
@@ -1217,16 +1217,16 @@ function compressVideo({ ffmpegPath, ffprobePath, sourcePath, options, outputPat
           warnings.push('Decodifica GPU non disponibile: ho usato la decodifica software.');
         }
       }
-      if (cancelled) throw new Error('Compressione annullata');
+      if (cancelled) throw new Error('Compression cancelled');
       if (finalRun.code !== 0) {
         throw friendlyHardwareError(
-          new Error(finalRun.details || `FFmpeg ha restituito ${finalRun.code}`),
+          new Error(finalRun.details || `FFmpeg returned ${finalRun.code}`),
           plan.encoderId,
         );
       }
       if (!fs.existsSync(tempOutput)) throw new Error('FFmpeg non ha prodotto il file di output');
       const stat = fs.statSync(tempOutput);
-      if (!stat.size) throw new Error('Il file compresso è vuoto');
+      if (!stat.size) throw new Error('The compressed file is empty');
       try {
         if (isWin && fs.existsSync(outputPath)) fs.rmSync(outputPath, { force: true });
         fs.renameSync(tempOutput, outputPath);
@@ -1278,7 +1278,7 @@ function compressVideo({ ffmpegPath, ffprobePath, sourcePath, options, outputPat
         estimate: plan.estimate,
       };
     } catch (error) {
-      if (cancelled) throw new Error('Compressione annullata');
+      if (cancelled) throw new Error('Compression cancelled');
       throw friendlyHardwareError(error, plan.encoderId);
     } finally {
       try {

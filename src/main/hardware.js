@@ -23,37 +23,37 @@ const X264_PRESETS = [
 ];
 
 const AOM_PRESETS = [
-  { value: '0', label: '0 · massima qualità' },
+  { value: '0', label: '0 · maximum quality' },
   { value: '1', label: '1' },
   { value: '2', label: '2' },
   { value: '3', label: '3' },
   { value: '4', label: '4' },
   { value: '5', label: '5' },
-  { value: '6', label: '6 · equilibrato' },
+  { value: '6', label: '6 · balanced' },
   { value: '7', label: '7' },
-  { value: '8', label: '8 · massima velocità' },
+  { value: '8', label: '8 · maximum speed' },
 ];
 
 const VP9_PRESETS = [
-  { value: '0', label: '0 · massima qualità' },
+  { value: '0', label: '0 · maximum quality' },
   { value: '1', label: '1' },
-  { value: '2', label: '2 · equilibrato' },
+  { value: '2', label: '2 · balanced' },
   { value: '3', label: '3' },
   { value: '4', label: '4' },
   { value: '5', label: '5' },
-  { value: '6', label: '6 · veloce' },
+  { value: '6', label: '6 · fast' },
   { value: '7', label: '7' },
-  { value: '8', label: '8 · massima velocità' },
+  { value: '8', label: '8 · maximum speed' },
 ];
 
 const NVENC_PRESETS = [
-  { value: 'p1', label: 'P1 · massima velocità' },
+  { value: 'p1', label: 'P1 · maximum speed' },
   { value: 'p2', label: 'P2' },
   { value: 'p3', label: 'P3' },
-  { value: 'p4', label: 'P4 · veloce' },
-  { value: 'p5', label: 'P5 · equilibrato' },
-  { value: 'p6', label: 'P6 · qualità' },
-  { value: 'p7', label: 'P7 · massima qualità' },
+  { value: 'p4', label: 'P4 · fast' },
+  { value: 'p5', label: 'P5 · balanced' },
+  { value: 'p6', label: 'P6 · quality' },
+  { value: 'p7', label: 'P7 · maximum quality' },
 ];
 
 const QSV_PRESETS = [
@@ -123,7 +123,7 @@ const VIDEO_ENCODERS = [
   },
   {
     id: 'libaom-av1',
-    label: 'AV1 · libaom (software, lento)',
+    label: 'AV1 · libaom (software, slow)',
     short: 'AV1 libaom',
     family: 'aom',
     codec: 'av1',
@@ -222,7 +222,7 @@ const VIDEO_ENCODERS = [
     defaultPreset: 'medium',
     tunes: [],
     profiles: ['auto', 'main', 'main10'],
-    quality: { min: 1, max: 51, step: 1, default: 24, label: 'Qualità' },
+    quality: { min: 1, max: 51, step: 1, default: 24, label: 'Quality' },
     twoPass: false,
     customParam: null,
     pixelFormats: ['auto', 'nv12', 'p010le'],
@@ -240,7 +240,7 @@ const VIDEO_ENCODERS = [
     defaultPreset: 'medium',
     tunes: [],
     profiles: ['auto', 'baseline', 'main', 'high'],
-    quality: { min: 1, max: 51, step: 1, default: 23, label: 'Qualità' },
+    quality: { min: 1, max: 51, step: 1, default: 23, label: 'Quality' },
     twoPass: false,
     customParam: null,
     pixelFormats: ['auto', 'nv12', 'yuv420p'],
@@ -258,7 +258,7 @@ const VIDEO_ENCODERS = [
     defaultPreset: 'medium',
     tunes: [],
     profiles: ['auto', 'main'],
-    quality: { min: 1, max: 51, step: 1, default: 26, label: 'Qualità' },
+    quality: { min: 1, max: 51, step: 1, default: 26, label: 'Quality' },
     twoPass: false,
     customParam: null,
     pixelFormats: ['auto', 'nv12', 'p010le'],
@@ -330,7 +330,7 @@ const VIDEO_ENCODERS = [
     defaultPreset: '',
     tunes: [],
     profiles: ['auto', 'main', 'main10'],
-    quality: { min: 0, max: 100, step: 1, default: 65, label: 'Qualità' },
+    quality: { min: 0, max: 100, step: 1, default: 65, label: 'Quality' },
     twoPass: false,
     customParam: null,
     pixelFormats: ['auto', 'yuv420p', 'p010le'],
@@ -348,7 +348,7 @@ const VIDEO_ENCODERS = [
     defaultPreset: '',
     tunes: [],
     profiles: ['auto', 'baseline', 'main', 'high'],
-    quality: { min: 0, max: 100, step: 1, default: 65, label: 'Qualità' },
+    quality: { min: 0, max: 100, step: 1, default: 65, label: 'Quality' },
     twoPass: false,
     customParam: null,
     pixelFormats: ['auto', 'yuv420p'],
@@ -391,7 +391,7 @@ const AUDIO_CODECS = [
   },
   {
     id: 'flac',
-    label: 'FLAC (senza perdita)',
+    label: 'FLAC (lossless)',
     containers: ['mkv'],
     lossy: false,
     defaultBitrate: 0,
@@ -416,7 +416,7 @@ const AUDIO_CODECS = [
 ];
 
 const CONTAINERS = [
-  { id: 'mp4', label: 'MP4 · massima compatibilità', extension: 'mp4' },
+  { id: 'mp4', label: 'MP4 · maximum compatibility', extension: 'mp4' },
   { id: 'mkv', label: 'MKV · tutte le tracce e formati', extension: 'mkv' },
   { id: 'webm', label: 'WebM · VP9/AV1 + Opus', extension: 'webm' },
 ];
@@ -438,7 +438,7 @@ const HARDWARE_ORDER = [
 function run(command, args, timeout = 20000, options = {}) {
   return new Promise((resolve) => {
     if (!command) {
-      resolve({ code: -1, stdout: '', stderr: 'comando non trovato', error: true });
+      resolve({ code: -1, stdout: '', stderr: 'command not found', error: true });
       return;
     }
     execFile(

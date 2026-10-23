@@ -5,13 +5,74 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const zlib = require('zlib');
-const { spawnSync } = require('child_process');
+const { spawnSync, execFile } = require('child_process');
 const { app } = require('electron');
 
 const isWin = process.platform === 'win32';
 const exeName = (name) => (isWin ? `${name}.exe` : name);
 
 let cache = null;
+let versionCache = null;
+
+/**
+ * Le versioni dei tool vengono ricordate su disco: avviare ffmpeg/yt-dlp solo
+ * per leggere "--version" costa piu` di tutto il resto dell'avvio.
+ */
+function versionCacheFile() {
+  try {
+    return path.join(app.getPath('userData'), 'binaries.json');
+  } catch {
+    return '';
+  }
+}
+
+function readVersionCache() {
+  if (versionCache) return versionCache;
+  versionCache = {};
+  const file = versionCacheFile();
+  if (!file) return versionCache;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (parsed && typeof parsed === 'object') versionCache = parsed;
+  } catch {
+    versionCache = {};
+  }
+  return versionCache;
+}
+
+function writeVersionCache() {
+  const file = versionCacheFile();
+  if (!file) return;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify(versionCache || {}, null, 2)}\n`, 'utf8');
+  } catch {
+    /* la cache non e' critica */
+  }
+}
+
+function fileStamp(file) {
+  try {
+    const stat = fs.statSync(file);
+    return `${stat.size}:${Math.round(stat.mtimeMs)}`;
+  } catch {
+    return '';
+  }
+}
+
+function cachedVersion(file, id) {
+  if (!file) return null;
+  const entry = readVersionCache()[id];
+  if (!entry || entry.path !== file) return null;
+  if (entry.stamp !== fileStamp(file)) return null;
+  return entry.version || null;
+}
+
+function rememberVersion(id, file, version) {
+  if (!id || !file || !version) return;
+  readVersionCache()[id] = { path: file, stamp: fileStamp(file), version };
+  writeVersionCache();
+}
 
 function projectRoot() {
   return path.join(__dirname, '..', '..');
@@ -54,8 +115,12 @@ function which(cmd) {
   }
 }
 
-function probeVersion(command, args) {
+function probeVersion(command, args, id) {
   if (!command) return null;
+  if (id) {
+    const cached = cachedVersion(command, id);
+    if (cached) return cached;
+  }
   try {
     const result = spawnSync(command, args, {
       encoding: 'utf8',
@@ -64,10 +129,29 @@ function probeVersion(command, args) {
     });
     if (result.error || result.status !== 0) return null;
     const line = (result.stdout || result.stderr || '').split(/\r?\n/).find((l) => l.trim());
-    return line ? line.trim() : null;
+    const version = line ? line.trim() : null;
+    if (version && id) rememberVersion(id, command, version);
+    return version;
   } catch {
     return null;
   }
+}
+
+function probeVersionAsync(command, args) {
+  return new Promise((resolve) => {
+    if (!command) {
+      resolve(null);
+      return;
+    }
+    execFile(command, args, { encoding: 'utf8', timeout: 15000, windowsHide: true }, (error, stdout, stderr) => {
+      if (error) {
+        resolve(null);
+        return;
+      }
+      const line = String(stdout || stderr || '').split(/\r?\n/).find((value) => value.trim());
+      resolve(line ? line.trim() : null);
+    });
+  });
 }
 
 function ytdlpCandidates() {
@@ -85,19 +169,25 @@ function ytdlpCandidates() {
   return list.filter(Boolean);
 }
 
-function resolveYtDlp() {
+function resolveYtDlp(probe = true) {
+  let firstExisting = null;
   for (const candidate of ytdlpCandidates()) {
     if (!isFile(candidate)) continue;
-    const version = probeVersion(candidate, ['--version']);
+    if (!firstExisting) firstExisting = { path: candidate, version: cachedVersion(candidate, 'ytdlp'), source: 'bundled' };
+    if (!probe) continue;
+    const version = probeVersion(candidate, ['--version'], 'ytdlp');
     if (version) return { path: candidate, version, source: 'bundled' };
   }
 
-  const system = which(isWin ? 'yt-dlp.exe' : 'yt-dlp') || which('yt-dlp');
-  if (system) {
-    const version = probeVersion(system, ['--version']);
-    if (version) return { path: system, version, source: 'system' };
+  if (probe) {
+    const system = which(isWin ? 'yt-dlp.exe' : 'yt-dlp') || which('yt-dlp');
+    if (system) {
+      const version = probeVersion(system, ['--version'], 'ytdlp');
+      if (version) return { path: system, version, source: 'system' };
+    }
   }
 
+  if (!probe && firstExisting) return firstExisting;
   return { path: null, version: null, source: null };
 }
 
@@ -114,19 +204,25 @@ function ffmpegCandidates() {
   return list.filter(Boolean);
 }
 
-function resolveFfmpeg() {
+function resolveFfmpeg(probe = true) {
+  let firstExisting = null;
   for (const candidate of ffmpegCandidates()) {
     if (!isFile(candidate)) continue;
-    const version = probeVersion(candidate, ['-version']);
+    if (!firstExisting) firstExisting = { path: candidate, version: cachedVersion(candidate, 'ffmpeg'), source: 'bundled' };
+    if (!probe) continue;
+    const version = probeVersion(candidate, ['-version'], 'ffmpeg');
     if (version) return { path: candidate, version, source: 'bundled' };
   }
 
-  const system = which(isWin ? 'ffmpeg.exe' : 'ffmpeg') || which('ffmpeg');
-  if (system) {
-    const version = probeVersion(system, ['-version']);
-    if (version) return { path: system, version, source: 'system' };
+  if (probe) {
+    const system = which(isWin ? 'ffmpeg.exe' : 'ffmpeg') || which('ffmpeg');
+    if (system) {
+      const version = probeVersion(system, ['-version'], 'ffmpeg');
+      if (version) return { path: system, version, source: 'system' };
+    }
   }
 
+  if (!probe && firstExisting) return firstExisting;
   return { path: null, version: null, source: null };
 }
 
@@ -143,31 +239,71 @@ function ffprobeCandidates() {
   return list.filter(Boolean);
 }
 
-function resolveFfprobe() {
+function resolveFfprobe(probe = true) {
+  let firstExisting = null;
   for (const candidate of ffprobeCandidates()) {
     if (!isFile(candidate)) continue;
-    const version = probeVersion(candidate, ['-version']);
+    if (!firstExisting) firstExisting = { path: candidate, version: cachedVersion(candidate, 'ffprobe'), source: 'bundled' };
+    if (!probe) continue;
+    const version = probeVersion(candidate, ['-version'], 'ffprobe');
     if (version) return { path: candidate, version, source: 'bundled' };
   }
 
-  const system = which(isWin ? 'ffprobe.exe' : 'ffprobe') || which('ffprobe');
-  if (system) {
-    const version = probeVersion(system, ['-version']);
-    if (version) return { path: system, version, source: 'system' };
+  if (probe) {
+    const system = which(isWin ? 'ffprobe.exe' : 'ffprobe') || which('ffprobe');
+    if (system) {
+      const version = probeVersion(system, ['-version'], 'ffprobe');
+      if (version) return { path: system, version, source: 'system' };
+    }
   }
 
+  if (!probe && firstExisting) return firstExisting;
   return { path: null, version: null, source: null };
 }
 
-function getBinaries(force = false) {
+function getBinaries(force = false, options = {}) {
   if (cache && !force) return cache;
-  cache = {
-    ytdlp: resolveYtDlp(),
-    ffmpeg: resolveFfmpeg(),
-    ffprobe: resolveFfprobe(),
+  const probe = options.probe !== false;
+  const result = {
+    ytdlp: resolveYtDlp(probe),
+    ffmpeg: resolveFfmpeg(probe),
+    ffprobe: resolveFfprobe(probe),
     userBinDir: path.join(app.getPath('userData'), 'bin'),
   };
+  if (options.fast) return result;
+  cache = result;
   return cache;
+}
+
+/** Solo percorsi e versioni gia` note: nessun processo avviato. */
+function getBinariesFast() {
+  const cached = cache;
+  if (cached) return cached;
+  return getBinaries(false, { probe: false, fast: true });
+}
+
+/**
+ * Verifica le versioni in background, senza bloccare il processo principale:
+ * la finestra si apre subito e vede le versioni appena sono pronte.
+ */
+async function probeInBackground() {
+  const binaries = getBinariesFast();
+  const checks = [
+    ['ytdlp', 'ytdlp', ['--version']],
+    ['ffmpeg', 'ffmpeg', ['-version']],
+    ['ffprobe', 'ffprobe', ['-version']],
+  ];
+  for (const [id, key, args] of checks) {
+    const item = binaries[key];
+    if (!item || !item.path || item.version) continue;
+    const version = await probeVersionAsync(item.path, args);
+    if (version) {
+      item.version = version;
+      rememberVersion(id, item.path, version);
+    }
+  }
+  cache = binaries;
+  return binaries;
 }
 
 function linkOrCopy(source, destination) {
@@ -224,7 +360,7 @@ function downloadFile(url, destination, onProgress) {
   return new Promise((resolve, reject) => {
     const visit = (currentUrl, redirects = 0) => {
       if (redirects > 8) {
-        reject(new Error('Troppi redirect durante il download'));
+        reject(new Error('Too many redirects during download'));
         return;
       }
       const request = https.get(
@@ -239,7 +375,7 @@ function downloadFile(url, destination, onProgress) {
           }
           if (status !== 200) {
             response.resume();
-            reject(new Error(`Download fallito (HTTP ${status})`));
+            reject(new Error(`Download failed (HTTP ${status})`));
             return;
           }
 
@@ -258,7 +394,7 @@ function downloadFile(url, destination, onProgress) {
         },
       );
       request.on('error', reject);
-      request.setTimeout(30000, () => request.destroy(new Error('Timeout durante il download')));
+      request.setTimeout(30000, () => request.destroy(new Error('Timeout during download')));
     };
 
     visit(url);
@@ -307,7 +443,7 @@ async function updateYtDlp(onProgress) {
 
   cache = null;
   const updated = getBinaries(true).ytdlp;
-  if (!updated.path) throw new Error('Aggiornamento completato ma yt-dlp non è eseguibile');
+  if (!updated.path) throw new Error('Update finished but yt-dlp is not executable');
   return updated;
 }
 
@@ -351,7 +487,7 @@ function downloadGzFile(url, destination, onProgress) {
   return new Promise((resolve, reject) => {
     const visit = (currentUrl, redirects = 0) => {
       if (redirects > 8) {
-        reject(new Error('Troppi redirect durante il download'));
+        reject(new Error('Too many redirects during download'));
         return;
       }
       const request = https.get(
@@ -366,7 +502,7 @@ function downloadGzFile(url, destination, onProgress) {
           }
           if (status !== 200) {
             response.resume();
-            reject(new Error(`Download fallito (HTTP ${status})`));
+            reject(new Error(`Download failed (HTTP ${status})`));
             return;
           }
 
@@ -405,13 +541,13 @@ function downloadGzFile(url, destination, onProgress) {
             out.close(() => {
               try {
                 const stat = fs.statSync(temporary);
-                if (!stat.size) throw new Error('Il file scaricato è vuoto');
+                if (!stat.size) throw new Error('The downloaded file is empty');
                 if (isWin) {
                   const fd = fs.openSync(temporary, 'r');
                   const magic = Buffer.alloc(2);
                   fs.readSync(fd, magic, 0, 2, 0);
                   fs.closeSync(fd);
-                  if (magic.toString() !== 'MZ') throw new Error('Il file scaricato non è un eseguibile valido');
+                  if (magic.toString() !== 'MZ') throw new Error('The downloaded file is not a valid executable');
                 }
                 if (isFile(destination)) fs.unlinkSync(destination);
                 fs.renameSync(temporary, destination);
@@ -431,20 +567,20 @@ function downloadGzFile(url, destination, onProgress) {
         },
       );
       request.on('error', reject);
-      request.setTimeout(180000, () => request.destroy(new Error('Timeout durante il download')));
+      request.setTimeout(180000, () => request.destroy(new Error('Timeout during download')));
     };
     visit(url);
   });
 }
 
 async function downloadFfmpegTool(tool, onProgress) {
-  if (tool !== 'ffmpeg' && tool !== 'ffprobe') throw new Error(`Tool non supportato: ${tool}`);
+  if (tool !== 'ffmpeg' && tool !== 'ffprobe') throw new Error(`Unsupported tool: ${tool}`);
   const binDir = path.join(app.getPath('userData'), 'bin');
   fs.mkdirSync(binDir, { recursive: true });
   const destination = path.join(binDir, exeName(tool));
   await downloadGzFile(ffmpegToolUrl(tool), destination, onProgress);
   const version = probeVersion(destination, ['-version']);
-  if (!version) throw new Error(`Il binario ${tool} scaricato non è eseguibile`);
+  if (!version) throw new Error(`The downloaded ${tool} binary is not executable`);
   return destination;
 }
 
@@ -454,7 +590,7 @@ async function downloadFfmpegTool(tool, onProgress) {
 async function downloadTool(tool, onProgress) {
   const name = String(tool || '');
   if (!['ytdlp', 'ffmpeg', 'ffprobe'].includes(name)) {
-    throw new Error('Dipendenza non supportata');
+    throw new Error('Unsupported dependency');
   }
   if (name === 'ytdlp') {
     await updateYtDlp(onProgress);
@@ -465,7 +601,7 @@ async function downloadTool(tool, onProgress) {
   const updated = getBinaries(true);
   const key = name === 'ytdlp' ? 'ytdlp' : name;
   if (!updated[key] || !updated[key].path) {
-    throw new Error(`Download completato ma ${name} non è eseguibile`);
+    throw new Error(`Download finished but ${name} is not executable`);
   }
   return {
     tool: name,
@@ -479,6 +615,8 @@ async function downloadTool(tool, onProgress) {
 
 module.exports = {
   getBinaries,
+  getBinariesFast,
+  probeInBackground,
   ensureToolLinks,
   updateYtDlp,
   downloadTool,

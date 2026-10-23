@@ -34,10 +34,10 @@ function ensureCacheDir() {
 async function analyze(filePath) {
   const resolved = path.resolve(String(filePath || ''));
   if (!resolved || !fs.existsSync(resolved)) {
-    throw new Error('File non trovato');
+    throw new Error('File not found');
   }
   const stat = fs.statSync(resolved);
-  if (!stat.isFile()) throw new Error('Il percorso non è un file');
+  if (!stat.isFile()) throw new Error('The path is not a file');
 
   const cached = analysisCache.get(resolved);
   if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
@@ -45,8 +45,8 @@ async function analyze(filePath) {
   }
 
   const tools = binaries.getBinaries();
-  if (!tools.ffprobe.path) throw new Error('ffprobe non trovato');
-  if (!tools.ffmpeg.path) throw new Error('FFmpeg non trovato');
+  if (!tools.ffprobe.path) throw new Error('ffprobe not found');
+  if (!tools.ffmpeg.path) throw new Error('FFmpeg not found');
 
   const info = await core.probe(tools.ffprobe.path, resolved);
   const dir = ensureCacheDir();
@@ -90,8 +90,8 @@ async function analyze(filePath) {
 
 function exportProject(project, outputPath, onProgress) {
   const tools = binaries.getBinaries();
-  if (!tools.ffmpeg.path) return Promise.reject(new Error('FFmpeg non trovato'));
-  if (!tools.ffprobe.path) return Promise.reject(new Error('ffprobe non trovato'));
+  if (!tools.ffmpeg.path) return Promise.reject(new Error('FFmpeg not found'));
+  if (!tools.ffprobe.path) return Promise.reject(new Error('ffprobe not found'));
 
   const inner = core.exportMontage({
     ffmpegPath: tools.ffmpeg.path,

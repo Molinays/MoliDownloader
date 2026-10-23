@@ -56,7 +56,7 @@ function setupEvents() {
   };
 
   autoUpdater.on('checking-for-update', () => {
-    publish({ state: 'checking', message: 'Controllo degli aggiornamenti...', version: null });
+    publish({ state: 'checking', message: 'Checking for updates...', version: null });
   });
 
   autoUpdater.on('update-available', (info) => {
@@ -66,7 +66,7 @@ function setupEvents() {
       version: info && info.version,
       releaseName: info && info.releaseName,
       lastCheckedAt: Date.now(),
-      message: 'Nuova versione trovata: download in corso...',
+      message: 'New version found: downloading...',
     });
   });
 
@@ -91,12 +91,12 @@ function setupEvents() {
       state: 'downloaded',
       version: info && info.version,
       percent: 100,
-      message: 'Aggiornamento pronto: si installa alla chiusura oppure subito.',
+      message: 'Update ready: it installs on exit or immediately.',
     });
   });
 
   autoUpdater.on('error', (error) => {
-    const message = String((error && error.message) || error || 'Errore aggiornamento')
+    const message = String((error && error.message) || error || 'Update error')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 240);
@@ -108,18 +108,18 @@ async function check(manual) {
   if (!app.isPackaged) {
     publish({
       state: 'dev',
-      message: 'Gli aggiornamenti automatici sono attivi solo nell’app installata.',
+      message: 'Automatic updates only work in the installed app.',
     });
     return { ok: false, dev: true };
   }
   if (checking) return { ok: true, alreadyChecking: true };
   checking = true;
   try {
-    publish({ state: 'checking', message: 'Controllo degli aggiornamenti...' });
+    publish({ state: 'checking', message: 'Checking for updates...' });
     const result = await autoUpdater.checkForUpdates();
     return { ok: true, version: result && result.updateInfo ? result.updateInfo.version : null };
   } catch (error) {
-    const message = String((error && error.message) || error || 'Errore aggiornamento')
+    const message = String((error && error.message) || error || 'Update error')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 240);
@@ -132,14 +132,14 @@ async function check(manual) {
 
 function install() {
   if (lastState.state !== 'downloaded') return { ok: false };
-  publish({ state: 'installing', message: 'Riavvio per installare l’aggiornamento...' });
+  publish({ state: 'installing', message: 'Restarting to install the update...' });
   setImmediate(() => {
     try {
       autoUpdater.quitAndInstall(false, true);
     } catch (error) {
       publish({
         state: 'error',
-        message: String((error && error.message) || error || 'Installazione non riuscita'),
+        message: String((error && error.message) || error || 'Installation failed'),
       });
     }
   });
@@ -159,7 +159,7 @@ function start(broadcast) {
   if (!app.isPackaged) {
     publish({
       state: 'dev',
-      message: 'Gli aggiornamenti automatici sono attivi solo nell’app installata.',
+      message: 'Automatic updates only work in the installed app.',
     });
     return;
   }

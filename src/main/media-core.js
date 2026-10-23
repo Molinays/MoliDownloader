@@ -40,7 +40,7 @@ function rotationOf(stream) {
 function probe(ffprobePath, filePath) {
   return new Promise((resolve, reject) => {
     if (!ffprobePath) {
-      reject(new Error('ffprobe non trovato'));
+      reject(new Error('ffprobe not found'));
       return;
     }
     const child = spawn(
@@ -59,7 +59,7 @@ function probe(ffprobePath, filePath) {
     child.on('error', reject);
     child.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(stderr.trim() || `ffprobe ha restituito ${code}`));
+        reject(new Error(stderr.trim() || `ffprobe returned ${code}`));
         return;
       }
       try {
@@ -112,7 +112,7 @@ function probe(ffprobePath, filePath) {
 function runBinary(binary, args, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     if (!binary) {
-      reject(new Error('FFmpeg non trovato'));
+      reject(new Error('FFmpeg not found'));
       return;
     }
     const child = spawn(binary, args, { windowsHide: true });
@@ -137,7 +137,7 @@ function runBinary(binary, args, timeoutMs = 120000) {
     child.on('close', (code) => {
       clearTimeout(timer);
       if (code === 0) resolve();
-      else reject(new Error(stderr.trim().split(/\r?\n/).slice(-4).join(' ') || `FFmpeg ha restituito ${code}`));
+      else reject(new Error(stderr.trim().split(/\r?\n/).slice(-4).join(' ') || `FFmpeg returned ${code}`));
     });
   });
 }
@@ -277,7 +277,7 @@ function buildExportPlan({ project, infos, target, fps, audioOnly }) {
   project.clips.forEach((clip, index) => {
     const info = infos[index];
     if (!info || !info.duration || info.duration <= 0.05) {
-      throw new Error(`Clip non valida: ${clip.path}`);
+      throw new Error(`Invalid clip: ${clip.path}`);
     }
     const start = clamp(num(clip.in, 0), 0, Math.max(0, info.duration - 0.05));
     const end = clamp(num(clip.out, info.duration), start + 0.05, info.duration);
@@ -405,7 +405,7 @@ function buildExportPlan({ project, infos, target, fps, audioOnly }) {
     pairs.push({ video: `v${index}`, audio: `a${index}` });
   });
 
-  if (!normalized.length) throw new Error('Aggiungi almeno una clip al montaggio');
+  if (!normalized.length) throw new Error('Add at least one clip to the timeline');
 
   if (audioOnly) {
     const labels = pairs.map((pair) => `[${pair.audio}]`).join('');
@@ -487,27 +487,27 @@ function exportMontage({ ffmpegPath, ffprobePath, project, outputPath, onProgres
   let cancelled = false;
 
   const promise = (async () => {
-    if (!ffmpegPath) throw new Error('FFmpeg non trovato');
+    if (!ffmpegPath) throw new Error('FFmpeg not found');
     if (!project || !Array.isArray(project.clips) || !project.clips.length) {
-      throw new Error('Aggiungi almeno una clip al montaggio');
+      throw new Error('Add at least one clip to the timeline');
     }
-    if (!outputPath) throw new Error('Scegli un file di output');
+    if (!outputPath) throw new Error('Choose an output file');
 
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
     const infos = [];
     for (const clip of project.clips) {
       if (!clip.path || !fs.existsSync(clip.path)) {
-        throw new Error(`File non trovato: ${clip.path || '(vuoto)'}`);
+        throw new Error(`File not found: ${clip.path || '(empty)'}`);
       }
       infos.push(await probe(ffprobePath, clip.path));
     }
 
     let music = null;
     if (project.music && project.music.path) {
-      if (!fs.existsSync(project.music.path)) throw new Error('Traccia musicale non trovata');
+      if (!fs.existsSync(project.music.path)) throw new Error('Music track not found');
       const musicInfo = await probe(ffprobePath, project.music.path);
-      if (!musicInfo.hasAudio) throw new Error('La traccia musicale non contiene audio');
+      if (!musicInfo.hasAudio) throw new Error('The music track has no audio');
       music = { ...project.music, duration: musicInfo.duration };
     }
 
@@ -557,11 +557,11 @@ function exportMontage({ ffmpegPath, ffprobePath, project, outputPath, onProgres
     });
 
     if (cancelled) {
-      throw new Error('Esportazione annullata');
+      throw new Error('Export cancelled');
     }
     if (exitCode !== 0) {
       const details = stderrChunks.join('').trim().split(/\r?\n/).slice(-5).join(' ');
-      throw new Error(details || `FFmpeg ha restituito ${exitCode}`);
+      throw new Error(details || `FFmpeg returned ${exitCode}`);
     }
 
     let stat;
@@ -570,7 +570,7 @@ function exportMontage({ ffmpegPath, ffprobePath, project, outputPath, onProgres
     } catch {
       throw new Error('FFmpeg non ha prodotto il file di output');
     }
-    if (!stat.size) throw new Error('Il file esportato è vuoto');
+    if (!stat.size) throw new Error('The exported file is empty');
 
     if (onProgress) onProgress({ progress: 1, seconds: plan.totalDuration, total: plan.totalDuration });
     return {

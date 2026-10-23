@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- MoliDowloader — Copyright © 2026 Molinays · SPDX-License-Identifier: MIT -->
-<html lang="it">
+<html lang="en">
 
 <head>
   <meta charset="UTF-8">
@@ -8,13 +8,61 @@
     content="default-src 'self' file: data:; script-src 'self' file:; style-src 'self' 'unsafe-inline' file: https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: data: blob:; media-src 'self' file: data: blob:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MoliDowloader</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <style>
+    /* Schermata di avvio: disegnata prima che il resto dell'app sia pronto. */
+    .boot-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: #0b0c0e;
+      color: #e7e9ec;
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      transition: opacity .25s ease, visibility .25s ease;
+    }
+    body.loaded .boot-screen { opacity: 0; visibility: hidden; }
+    .boot-mark {
+      width: 46px;
+      height: 46px;
+      border-radius: 10px;
+      background: #5b8def;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #000;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .boot-name { font-size: 16px; font-weight: 700; letter-spacing: .01em; }
+    .boot-bar { width: 190px; height: 3px; border-radius: 2px; background: #1a1d21; overflow: hidden; }
+    .boot-bar span {
+      display: block;
+      width: 40%;
+      height: 100%;
+      border-radius: 2px;
+      background: #5b8def;
+      animation: boot-slide 1.1s ease-in-out infinite;
+    }
+    @keyframes boot-slide {
+      0% { transform: translateX(-110%); }
+      100% { transform: translateX(360%); }
+    }
+    .boot-text { font-size: 11px; color: #6f757d; letter-spacing: .08em; text-transform: uppercase; }
+  </style>
 </head>
 
 <body>
+  <div id="bootScreen" class="boot-screen" aria-live="polite">
+    <div class="boot-mark">▶</div>
+    <div class="boot-name">MoliDowloader</div>
+    <div class="boot-bar"><span></span></div>
+    <div class="boot-text">Starting…</div>
+  </div>
   <div class="grid-bg"></div>
   <div id="particles-container"></div>
 
@@ -29,24 +77,79 @@
       <span class="logo-text">MoliDowloader</span>
       <span class="badge">Desktop</span>
 
-      <nav class="view-tabs" aria-label="Sezioni">
+      <nav class="view-tabs" aria-label="Sections">
         <button class="view-tab active" data-view="download">Download</button>
         <button class="view-tab" data-view="editor">Editor</button>
-        <button class="view-tab" data-view="compress">Comprimi</button>
+        <button class="view-tab" data-view="compress">Compress</button>
         <button class="view-tab" data-view="info">Info</button>
       </nav>
 
-      <span id="statusDot" class="status-dot" title="Motori locali"></span>
+      <button id="modeToggle" class="mode-toggle" type="button" title="Switch between Easy mode and Advanced mode">
+        Advanced mode
+      </button>
+      <span id="statusDot" class="status-dot" title="Local engines"></span>
     </header>
 
     <!-- ============================= DOWNLOAD ============================= -->
     <main id="viewDownload">
+      <!-- Easy mode: tre passaggi, nessuna impostazione da capire. -->
+      <section id="ezPanel" class="ez-panel" aria-label="Easy download">
+        <div class="ez-head">
+          <span class="ez-kicker">Easy mode</span>
+          <h1>Download a video or a song</h1>
+          <p class="ez-lead">Paste a link, choose what you want, press Download. That's all.</p>
+        </div>
+
+        <div class="ez-card">
+          <label class="ez-step" for="ezUrl"><span class="ez-step-num">1</span> Paste the link here</label>
+          <textarea id="ezUrl" class="ez-input" rows="3" autocomplete="off" spellcheck="false"
+            placeholder="https://www.youtube.com/watch?v=..."></textarea>
+          <div class="ez-help">YouTube, TikTok, Instagram, Facebook, Twitch, Spotify and 1000+ other sites.</div>
+          <div id="ezLinkInfo" class="link-info" hidden></div>
+
+          <div class="ez-step"><span class="ez-step-num">2</span> What do you want to save?</div>
+          <div class="ez-choices" role="group" aria-label="Download type">
+            <button class="ez-choice active" type="button" data-ez-format="video">
+              <strong>Video</strong>
+              <span>MP4 with picture and sound</span>
+            </button>
+            <button class="ez-choice" type="button" data-ez-format="audio">
+              <strong>Audio only</strong>
+              <span>MP3 for music and podcasts</span>
+            </button>
+          </div>
+
+          <div class="ez-row" id="ezQualityRow">
+            <label for="ezQuality">Quality</label>
+            <select id="ezQuality">
+              <option value="best">Best available</option>
+              <option value="1080" selected>Full HD (1080p)</option>
+              <option value="720">HD (720p)</option>
+              <option value="480">SD (480p)</option>
+              <option value="360">Low (360p)</option>
+            </select>
+          </div>
+
+          <div class="ez-row ez-folder-row">
+            <div class="ez-folder-main">
+              <span class="ez-row-label">Save to</span>
+              <span id="ezFolderPath" class="ez-folder-path">Downloads</span>
+            </div>
+            <button id="ezChangeFolder" class="btn-sm" type="button">Change folder</button>
+          </div>
+
+          <div class="ez-step"><span class="ez-step-num">3</span> Press the button</div>
+          <button id="ezDownloadBtn" class="ez-download" type="button">Download</button>
+          <div class="ez-tip">No account and no browser extension needed. If a site asks you to log in, the app tries your browser cookies automatically.</div>
+        </div>
+      </section>
+
       <div class="left">
         <div class="url-card">
           <div class="url-row">
             <textarea id="urlInput" class="url-input" rows="2" autocomplete="off" spellcheck="false"
-              placeholder="Incolla uno o più link: YouTube, TikTok, Instagram, Facebook, X, Vimeo, Twitch, SoundCloud..."></textarea>
-            <button id="dlBtn" class="btn-dl">Scarica</button>
+              placeholder="Paste one or more links: YouTube, TikTok, Instagram, Facebook, X, Vimeo, Twitch, SoundCloud..."></textarea>
+            <button id="dlBtn" class="btn-dl">Download</button>
           </div>
           <div class="site-chips">
             <span class="chip">YouTube</span>
@@ -57,9 +160,10 @@
             <span class="chip">Vimeo</span>
             <span class="chip">Twitch</span>
             <span class="chip">SoundCloud</span>
-            <span class="chip muted">+1000 siti</span>
+            <span class="chip muted">+1000 sites</span>
           </div>
-          <div class="url-hint">Un link per riga. L'app trova il video da sola: se il sito lo nasconde dietro un player o richiede un accesso, riprova con i cookie del browser. Nessuna estensione necessaria.</div>
+          <div class="url-hint">One link per line. The app finds the video for you: if a site hides it behind a player or requires a login, it retries with your browser cookies. No extension needed.</div>
+          <div id="linkInfo" class="link-info" hidden></div>
         </div>
 
         <div class="tabs">
@@ -71,14 +175,14 @@
           <details class="settings-group" open>
             <summary>
               <span class="group-title">Output</span>
-              <span class="group-note">Qualità, cartella e nome file</span>
+              <span class="group-note">Quality, folder, and file name</span>
             </summary>
             <div class="group-body">
               <div class="settings-grid">
                 <div class="field">
-                  <label for="quality">Qualità</label>
+                  <label for="quality">Quality</label>
                   <select id="quality">
-                    <option value="best">Best (automatico)</option>
+                    <option value="best">Best (automatic)</option>
                     <option value="2160">4K (2160p)</option>
                     <option value="1440">QHD (1440p)</option>
                     <option value="1080" selected>Full HD (1080p)</option>
@@ -88,14 +192,14 @@
                   </select>
                 </div>
                 <div class="field">
-                  <label for="outputDir">Cartella output</label>
+                  <label for="outputDir">Output folder</label>
                   <div class="folder-row">
                     <input id="outputDir" type="text" placeholder="Downloads">
-                    <button class="btn-icon" data-pick-folder="video" title="Sfoglia">Sfoglia</button>
+                    <button class="btn-icon" data-pick-folder="video" title="Browse">Browse</button>
                   </div>
                 </div>
                 <div class="field full">
-                  <label for="outputTmpl">Template nome file</label>
+                  <label for="outputTmpl">File name template</label>
                   <input id="outputTmpl" type="text" value="%(title)s.%(ext)s" placeholder="%(title)s.%(ext)s">
                 </div>
               </div>
@@ -104,23 +208,23 @@
 
           <details class="settings-group">
             <summary>
-              <span class="group-title">Sottotitoli</span>
-              <span class="group-note">Lingue e incorporamento</span>
+              <span class="group-title">Subtitles</span>
+              <span class="group-note">Languages and embedding</span>
             </summary>
             <div class="group-body">
               <div class="settings-grid">
                 <div class="field">
-                  <label for="subLangs">Lingue sottotitoli</label>
+                  <label for="subLangs">Subtitle languages</label>
                   <input id="subLangs" type="text" value="en,it" placeholder="en,it,fr">
                 </div>
               </div>
               <div class="toggles-grid">
                 <label class="toggle-item">
-                  <span class="toggle-label">Scarica sottotitoli</span>
+                  <span class="toggle-label">Download subtitles</span>
                   <span class="toggle"><input type="checkbox" id="subtitles"><span class="slider"></span></span>
                 </label>
                 <label class="toggle-item">
-                  <span class="toggle-label">Incorporali nel video</span>
+                  <span class="toggle-label">Embed in video</span>
                   <span class="toggle"><input type="checkbox" id="embedSubs"><span class="slider"></span></span>
                 </label>
               </div>
@@ -129,17 +233,17 @@
 
           <details class="settings-group" open>
             <summary>
-              <span class="group-title">Opzioni</span>
-              <span class="group-note">Cosa scaricare e come</span>
+              <span class="group-title">Options</span>
+              <span class="group-note">What to download and how</span>
             </summary>
             <div class="group-body">
               <div class="toggles-grid">
                 <label class="toggle-item">
-                  <span class="toggle-label">Playlist intera</span>
+                  <span class="toggle-label">Whole playlist</span>
                   <span class="toggle"><input type="checkbox" id="playlist"><span class="slider"></span></span>
                 </label>
                 <label class="toggle-item">
-                  <span class="toggle-label">Embed copertina</span>
+                  <span class="toggle-label">Embed thumbnail</span>
                   <span class="toggle"><input type="checkbox" id="embedThumb" checked><span class="slider"></span></span>
                 </label>
                 <label class="toggle-item">
@@ -154,12 +258,12 @@
                   <span class="toggle-label">Geo bypass</span>
                   <span class="toggle"><input type="checkbox" id="geoBypass"><span class="slider"></span></span>
                 </label>
-                <label class="toggle-item" title="Se un download fallisce, riprova da solo con altre impostazioni">
-                  <span class="toggle-label">Riprova da solo</span>
+                <label class="toggle-item" title="If a download fails, retry automatically with other settings">
+                  <span class="toggle-label">Auto retry</span>
                   <span class="toggle"><input type="checkbox" id="autoRetry" checked><span class="slider"></span></span>
                 </label>
-                <label class="toggle-item" title="Nei tentativi automatici usa i cookie del browser installato">
-                  <span class="toggle-label">Cookie se serve</span>
+                <label class="toggle-item" title="Automatically try cookies from the installed browser">
+                  <span class="toggle-label">Use cookies if needed</span>
                   <span class="toggle"><input type="checkbox" id="cookieFallback" checked><span class="slider"></span></span>
                 </label>
               </div>
@@ -168,43 +272,43 @@
 
           <details class="settings-group">
             <summary>
-              <span class="group-title">Prestazioni</span>
-              <span class="group-note">Coda, tentativi e banda</span>
+              <span class="group-title">Performance</span>
+              <span class="group-note">Queue, retries, and bandwidth</span>
             </summary>
             <div class="group-body">
               <div class="settings-grid">
                 <div class="field">
-                  <label for="maxParallel">Download in parallelo</label>
+                  <label for="maxParallel">Parallel downloads</label>
                   <input id="maxParallel" type="number" value="2" min="1" max="8">
                 </div>
                 <div class="field">
-                  <label for="retries">Tentativi per link</label>
+                  <label for="retries">Retries per link</label>
                   <input id="retries" type="number" value="10" min="1" max="99">
                 </div>
                 <div class="field">
-                  <label for="concurrentFragments">Frammenti paralleli</label>
+                  <label for="concurrentFragments">Parallel fragments</label>
                   <input id="concurrentFragments" type="number" value="8" min="1" max="16">
                 </div>
                 <div class="field">
-                  <label for="rateLimit">Limite di banda</label>
-                  <input id="rateLimit" type="text" placeholder="es. 5M, 1.5M">
+                  <label for="rateLimit">Bandwidth limit</label>
+                  <input id="rateLimit" type="text" placeholder="e.g. 5M, 1.5M">
                 </div>
               </div>
-              <div class="group-hint">Da 1 a 8 download insieme: gli altri link restano in coda. Il limite di banda è opzionale (es. 5M = 5 MB/s).</div>
+              <div class="group-hint">1 to 8 downloads at once: other links wait in the queue. The bandwidth limit is optional (e.g. 5M = 5 MB/s).</div>
             </div>
           </details>
 
           <details class="settings-group">
             <summary>
-              <span class="group-title">Accesso e rete</span>
-              <span class="group-note">Cookie e proxy</span>
+              <span class="group-title">Access and network</span>
+              <span class="group-note">Cookies and proxy</span>
             </summary>
             <div class="group-body">
               <div class="settings-grid">
                 <div class="field">
-                  <label for="cookiesFrom">Cookie da browser</label>
+                  <label for="cookiesFrom">Cookies from browser</label>
                   <select id="cookiesFrom">
-                    <option value="">Nessuno (automatico)</option>
+                    <option value="">None (automatic)</option>
                     <option value="chrome">Chrome</option>
                     <option value="firefox">Firefox</option>
                     <option value="edge">Edge</option>
@@ -213,11 +317,11 @@
                   </select>
                 </div>
                 <div class="field">
-                  <label for="proxy">Proxy (opzionale)</label>
+                  <label for="proxy">Proxy (optional)</label>
                   <input id="proxy" type="text" placeholder="socks5://127.0.0.1:1080">
                 </div>
               </div>
-              <div class="group-hint">I cookie servono solo per contenuti privati o che richiedono l'accesso. Se il download fallisce, l'app li prova da sola.</div>
+              <div class="group-hint">Cookies are only needed for private or login-only content. If a download fails, the app tries them automatically.</div>
             </div>
           </details>
         </div>
@@ -226,19 +330,19 @@
           <details class="settings-group" open>
             <summary>
               <span class="group-title">Audio</span>
-              <span class="group-note">Formato, bitrate e cartella</span>
+              <span class="group-note">Format, bitrate, and folder</span>
             </summary>
             <div class="group-body">
               <div class="settings-grid">
                 <div class="field">
-                  <label for="audioFormat">Formato</label>
+                  <label for="audioFormat">Format</label>
                   <select id="audioFormat">
                     <option value="mp3" selected>MP3</option>
                     <option value="m4a">M4A (AAC)</option>
                     <option value="opus">Opus</option>
                     <option value="flac">FLAC</option>
                     <option value="wav">WAV</option>
-                    <option value="best">Best (no convert)</option>
+                    <option value="best">Best (no conversion)</option>
                   </select>
                 </div>
                 <div class="field">
@@ -252,10 +356,10 @@
                   </select>
                 </div>
                 <div class="field full">
-                  <label for="outputDirAudio">Cartella output</label>
+                  <label for="outputDirAudio">Output folder</label>
                   <div class="folder-row">
                     <input id="outputDirAudio" type="text" placeholder="Downloads">
-                    <button class="btn-icon" data-pick-folder="audio" title="Sfoglia">Sfoglia</button>
+                    <button class="btn-icon" data-pick-folder="audio" title="Browse">Browse</button>
                   </div>
                 </div>
               </div>
@@ -268,19 +372,19 @@
       <div class="right">
         <div class="right-head">
           <h2>Download</h2>
-          <button id="btnClearDone" class="btn-icon">Pulisci</button>
+          <button id="btnClearDone" class="btn-icon">Clear</button>
         </div>
 
         <div id="jobsList" class="jobs-list">
-          <div class="empty-state">Nessun download ancora</div>
+          <div class="empty-state">No downloads yet</div>
         </div>
 
         <div class="panel-section info-panel">
-          <h3>Motore</h3>
+          <h3>Engine</h3>
           <div class="info-row"><span>yt-dlp</span><span id="ytdlpVersion" class="mono">...</span></div>
           <div class="info-row"><span>FFmpeg</span><span id="ffmpegVersion" class="mono">...</span></div>
-          <div class="info-row"><span>Cartella download</span><button id="btnOpenDownloads" class="link-btn">Apri</button></div>
-          <button id="btnUpdateYtdlp" class="btn-sm update-btn">Aggiorna yt-dlp</button>
+          <div class="info-row"><span>Downloads folder</span><button id="btnOpenDownloads" class="link-btn">Open</button></div>
+          <button id="btnUpdateYtdlp" class="btn-sm update-btn">Update yt-dlp</button>
           <div id="updateStatus" class="update-status"></div>
         </div>
       </div>
@@ -290,18 +394,18 @@
     <main id="viewEditor" class="editor-view" hidden>
       <div class="editor-topbar">
         <div class="editor-actions">
-          <button id="btnImport" class="btn-icon" title="Importa video o audio (o trascinali nella finestra)">+ Clip</button>
-          <button id="btnAddMusic" class="btn-icon">+ Musica</button>
-          <button id="btnUndo" class="btn-icon icon-only" title="Annulla (Ctrl+Z)" disabled>↶</button>
-          <button id="btnRedo" class="btn-icon icon-only" title="Ripeti (Ctrl+Shift+Z)" disabled>↷</button>
-          <button id="btnClearProject" class="btn-icon">Svuota</button>
+          <button id="btnImport" class="btn-icon" title="Import video or audio (or drop them into the window)">+ Clip</button>
+          <button id="btnAddMusic" class="btn-icon">+ Music</button>
+          <button id="btnUndo" class="btn-icon icon-only" title="Undo (Ctrl+Z)" disabled>↶</button>
+          <button id="btnRedo" class="btn-icon icon-only" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
+          <button id="btnClearProject" class="btn-icon">Clear</button>
         </div>
         <div class="project-name">
-          <label for="projectName">Progetto</label>
-          <input id="projectName" type="text" value="Montaggio" spellcheck="false">
+          <label for="projectName">Project</label>
+          <input id="projectName" type="text" value="Timeline" spellcheck="false">
         </div>
         <div class="editor-meta" id="editorMeta">0 clip</div>
-        <button id="btnExportTop" class="btn-dl">Esporta</button>
+        <button id="btnExportTop" class="btn-dl">Export</button>
       </div>
 
       <div class="editor-grid">
@@ -310,96 +414,96 @@
             <video id="edVideo" playsinline></video>
             <audio id="edMusic" preload="auto" hidden></audio>
             <button class="trim-chip" id="trimChip" hidden>
-              <span class="trim-chip-label">Taglio</span>
+              <span class="trim-chip-label">Trim</span>
               <strong id="trimChipValue">0:00 - 0:00</strong>
             </button>
             <div class="preview-empty" id="previewEmpty">
-              <div>Importa clip o trascina qui i file</div>
-              <div class="preview-empty-sub">Scegli uno strumento e modifica subito</div>
+              <div>Import clips or drop files here</div>
+              <div class="preview-empty-sub">Pick a tool and start editing</div>
             </div>
             <div class="preview-badge" id="previewBadge" hidden>AUDIO</div>
             <div class="preview-effects" id="previewEffects" hidden></div>
           </div>
 
           <div class="transport">
-            <button id="btnPreviewPlay" class="btn-sm btn-play-sequence" title="Anteprima montaggio (Spazio)">▶ Montaggio</button>
-            <button id="btnPreviewClip" class="btn-sm" title="Anteprima della selezione">Selezione</button>
+            <button id="btnPreviewPlay" class="btn-sm btn-play-sequence" title="Preview timeline (Space)">▶ Timeline</button>
+            <button id="btnPreviewClip" class="btn-sm" title="Preview selection">Selection</button>
             <button id="btnPreviewStop" class="btn-sm">Stop</button>
             <span class="transport-sep"></span>
-            <button id="btnFrameBack" class="btn-sm frame-btn" title="Fotogramma precedente (,)">◀|</button>
-            <button id="btnFrameNext" class="btn-sm frame-btn" title="Fotogramma successivo (.)">|▶</button>
+            <button id="btnFrameBack" class="btn-sm frame-btn" title="Previous frame (,)">◀|</button>
+            <button id="btnFrameNext" class="btn-sm frame-btn" title="Next frame (.)">|▶</button>
             <span id="edTime" class="mono">00:00.0 / 00:00.0</span>
             <span id="edFrame" class="mono">F: 0</span>
-            <label class="chip-toggle" title="Ripeti la selezione"><input id="previewLoop" type="checkbox"><span>Loop</span></label>
-            <label class="chip-toggle" title="Audio in anteprima"><input id="previewMute" type="checkbox"><span>Muto</span></label>
-            <span id="edSelection" class="muted">Nessuna clip selezionata</span>
-            <input id="edScrub" class="scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="Posizione nella selezione">
+            <label class="chip-toggle" title="Loop selection"><input id="previewLoop" type="checkbox"><span>Loop</span></label>
+            <label class="chip-toggle" title="Preview audio"><input id="previewMute" type="checkbox"><span>Mute</span></label>
+            <span id="edSelection" class="muted">No clip selected</span>
+            <input id="edScrub" class="scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="Position in selection">
           </div>
 
           <div class="strip-head">
-            <h3>Clip</h3>
-            <span id="timelineMeta">0 clip · 0:00</span>
-            <span class="strip-hint">Trascina per riordinare · Canc rimuove</span>
+            <h3>Clips</h3>
+            <span id="timelineMeta">0 clips · 0:00</span>
+            <span class="strip-hint">Drag to reorder · Del removes</span>
           </div>
           <div id="timeline" class="clip-strip">
-            <div class="timeline-empty">Nessuna clip: importa un file o trascinalo qui</div>
+            <div class="timeline-empty">No clips: import a file or drop it here</div>
           </div>
 
           <div class="tool-tabs" id="editorTools">
-            <button class="tool-tab active" data-tool="trim">Taglia</button>
-            <button class="tool-tab" data-tool="color">Colore</button>
-            <button class="tool-tab" data-tool="transform">Ruota</button>
+            <button class="tool-tab active" data-tool="trim">Trim</button>
+            <button class="tool-tab" data-tool="color">Color</button>
+            <button class="tool-tab" data-tool="transform">Rotate</button>
             <button class="tool-tab" data-tool="audio">Audio</button>
-            <button class="tool-tab" data-tool="resize">Ridimensiona</button>
-            <button class="tool-tab" data-tool="speed">Velocità</button>
-            <button class="tool-tab" data-tool="snapshot">Istantanea</button>
-            <button class="tool-tab" data-tool="inspect">Ispettore</button>
+            <button class="tool-tab" data-tool="resize">Resize</button>
+            <button class="tool-tab" data-tool="speed">Speed</button>
+            <button class="tool-tab" data-tool="snapshot">Snapshot</button>
+            <button class="tool-tab" data-tool="inspect">Inspector</button>
           </div>
 
           <div class="tool-panel" id="toolPanel">
             <div class="tool-pane active" data-panel="trim">
               <div class="field">
-                <label for="clipIn">Inizio <span class="range-value" id="clipInValue">0:00.0</span></label>
+                <label for="clipIn">Start <span class="range-value" id="clipInValue">0:00.0</span></label>
                 <input id="clipIn" type="range" min="0" max="10" step="0.04" value="0">
-                <input id="clipInNum" class="trim-num" type="number" min="0" max="10" step="0.01" value="0" aria-label="Inizio esatto in secondi">
+                <input id="clipInNum" class="trim-num" type="number" min="0" max="10" step="0.01" value="0" aria-label="Exact start in seconds">
               </div>
               <div class="field">
-                <label for="clipOut">Fine <span class="range-value" id="clipOutValue">0:10.0</span></label>
+                <label for="clipOut">End <span class="range-value" id="clipOutValue">0:10.0</span></label>
                 <input id="clipOut" type="range" min="0" max="10" step="0.04" value="10">
-                <input id="clipOutNum" class="trim-num" type="number" min="0" max="10" step="0.01" value="10" aria-label="Fine esatta in secondi">
+                <input id="clipOutNum" class="trim-num" type="number" min="0" max="10" step="0.01" value="10" aria-label="Exact end in seconds">
               </div>
               <div class="trim-quick">
-                <button class="btn-sm" data-trim="in">IN = cursore [</button>
-                <button class="btn-sm" data-trim="out">OUT = cursore ]</button>
-                <button class="btn-sm" data-trim="split">Dividi S</button>
-                <button class="btn-sm" data-trim="goto-in">Vai a IN</button>
-                <button class="btn-sm" data-trim="goto-out">Vai a OUT</button>
+                <button class="btn-sm" data-trim="in">IN = playhead [</button>
+                <button class="btn-sm" data-trim="out">OUT = playhead ]</button>
+                <button class="btn-sm" data-trim="split">Split S</button>
+                <button class="btn-sm" data-trim="goto-in">Go to IN</button>
+                <button class="btn-sm" data-trim="goto-out">Go to OUT</button>
                 <button class="btn-sm" data-trim="reset">Reset</button>
               </div>
-              <div class="clip-duration">Durata selezione <strong id="clipDuration">0:10.0</strong> · clip <span id="clipIndexLabel">—</span></div>
+              <div class="clip-duration">Selection duration <strong id="clipDuration">0:10.0</strong> · clip <span id="clipIndexLabel">—</span></div>
             </div>
 
             <div class="tool-pane" data-panel="color">
               <div class="preset-chips" id="colorPresets">
-                <button class="chip-btn active" data-color-preset="neutral">Neutro</button>
-                <button class="chip-btn" data-color-preset="warm">Caldo</button>
-                <button class="chip-btn" data-color-preset="cool">Freddo</button>
-                <button class="chip-btn" data-color-preset="vivid">Vivace</button>
+                <button class="chip-btn active" data-color-preset="neutral">Neutral</button>
+                <button class="chip-btn" data-color-preset="warm">Warm</button>
+                <button class="chip-btn" data-color-preset="cool">Cool</button>
+                <button class="chip-btn" data-color-preset="vivid">Vivid</button>
                 <button class="chip-btn" data-color-preset="cinema">Cinema</button>
-                <button class="chip-btn" data-color-preset="mono">B/N</button>
+                <button class="chip-btn" data-color-preset="mono">B&W</button>
                 <button class="chip-btn" data-color-preset="reset">Reset</button>
               </div>
               <div class="settings-grid compact">
                 <div class="field">
-                  <label for="colorBrightness">Luminosità <span class="range-value" id="colorBrightnessValue">0</span></label>
+                  <label for="colorBrightness">Brightness <span class="range-value" id="colorBrightnessValue">0</span></label>
                   <input id="colorBrightness" type="range" min="-50" max="50" step="1" value="0">
                 </div>
                 <div class="field">
-                  <label for="colorContrast">Contrasto <span class="range-value" id="colorContrastValue">100%</span></label>
+                  <label for="colorContrast">Contrast <span class="range-value" id="colorContrastValue">100%</span></label>
                   <input id="colorContrast" type="range" min="50" max="200" step="1" value="100">
                 </div>
                 <div class="field">
-                  <label for="colorSaturation">Saturazione <span class="range-value" id="colorSaturationValue">100%</span></label>
+                  <label for="colorSaturation">Saturation <span class="range-value" id="colorSaturationValue">100%</span></label>
                   <input id="colorSaturation" type="range" min="0" max="250" step="1" value="100">
                 </div>
                 <div class="field">
@@ -407,11 +511,11 @@
                   <input id="colorGamma" type="range" min="50" max="250" step="1" value="100">
                 </div>
                 <div class="field">
-                  <label for="colorTemperature">Temperatura <span class="range-value" id="colorTemperatureValue">6500 K</span></label>
+                  <label for="colorTemperature">Temperature <span class="range-value" id="colorTemperatureValue">6500 K</span></label>
                   <input id="colorTemperature" type="range" min="2500" max="10000" step="100" value="6500">
                 </div>
               </div>
-              <div class="tool-hint">L'anteprima è indicativa; nell'export si usano eq e colortemperature di FFmpeg.</div>
+              <div class="tool-hint">Preview is approximate; export uses FFmpeg eq and colortemperature.</div>
             </div>
 
             <div class="tool-pane" data-panel="transform">
@@ -422,10 +526,10 @@
                 <button class="btn-sm" data-rotate="reset">Reset</button>
               </div>
               <div class="toggles-grid">
-                <label class="toggle-item"><span class="toggle-label">Specchia orizzontale</span><span class="toggle"><input id="flipH" type="checkbox"><span class="slider"></span></span></label>
-                <label class="toggle-item"><span class="toggle-label">Specchia verticale</span><span class="toggle"><input id="flipV" type="checkbox"><span class="slider"></span></span></label>
+                <label class="toggle-item"><span class="toggle-label">Flip horizontally</span><span class="toggle"><input id="flipH" type="checkbox"><span class="slider"></span></span></label>
+                <label class="toggle-item"><span class="toggle-label">Flip vertically</span><span class="toggle"><input id="flipV" type="checkbox"><span class="slider"></span></span></label>
               </div>
-              <div class="tool-hint" id="transformHint">Nessuna rotazione.</div>
+              <div class="tool-hint" id="transformHint">No rotation.</div>
             </div>
 
             <div class="tool-pane" data-panel="audio">
@@ -444,7 +548,7 @@
                 </div>
               </div>
               <label class="toggle-item compact-toggle">
-                <span class="toggle-label">Muto</span>
+                <span class="toggle-label">Mute</span>
                 <span class="toggle"><input id="clipMute" type="checkbox"><span class="slider"></span></span>
               </label>
             </div>
@@ -459,10 +563,10 @@
                 <button class="chip-btn" data-zoom="2">200%</button>
               </div>
               <div class="field">
-                <label for="clipZoom">Scala clip <span class="range-value" id="clipZoomValue">100%</span></label>
+                <label for="clipZoom">Clip scale <span class="range-value" id="clipZoomValue">100%</span></label>
                 <input id="clipZoom" type="range" min="20" max="300" step="5" value="100">
               </div>
-              <div class="tool-hint">Sotto il 100% la clip resta centrata sul canvas; sopra il 100% viene ritagliata al centro.</div>
+              <div class="tool-hint">Below 100% the clip stays centered on the canvas; above 100% it is cropped from the center.</div>
             </div>
 
             <div class="tool-pane" data-panel="speed">
@@ -475,24 +579,24 @@
                 <button class="chip-btn" data-speed="2">2x</button>
               </div>
               <div class="field">
-                <label for="clipSpeed">Velocità <span class="range-value" id="clipSpeedValue">1x</span></label>
+                <label for="clipSpeed">Speed <span class="range-value" id="clipSpeedValue">1x</span></label>
                 <input id="clipSpeed" type="range" min="0.5" max="2" step="0.05" value="1">
               </div>
-              <div class="tool-hint">L'audio viene rallentato/accelerato con la clip.</div>
+              <div class="tool-hint">Audio follows the clip speed.</div>
             </div>
 
             <div class="tool-pane" data-panel="snapshot">
-              <button id="btnSnapshot" class="btn-dl btn-snapshot">Cattura fotogramma</button>
-              <div id="snapshotStatus" class="export-status">Il PNG viene salvato in Immagini\\MoliDowloader.</div>
+              <button id="btnSnapshot" class="btn-dl btn-snapshot">Capture frame</button>
+              <div id="snapshotStatus" class="export-status">The PNG is saved in Pictures\\MoliDowloader.</div>
               <div id="snapshotResult" class="export-result" hidden>
-                <button id="btnOpenSnapshot" class="btn-sm">Apri immagine</button>
-                <button id="btnRevealSnapshot" class="btn-sm">Cartella</button>
+                <button id="btnOpenSnapshot" class="btn-sm">Open image</button>
+                <button id="btnRevealSnapshot" class="btn-sm">Folder</button>
               </div>
             </div>
 
             <div class="tool-pane" data-panel="inspect">
               <div id="clipInspect" class="inspect-grid">
-                <div class="muted">Seleziona una clip per vedere i dettagli tecnici.</div>
+                <div class="muted">Select a clip to see technical details.</div>
               </div>
             </div>
           </div>
@@ -501,10 +605,10 @@
         <aside class="inspector-col">
           <div class="panel-section music-panel">
             <div class="panel-title">
-              <h3>Traccia musicale</h3>
-              <button id="btnMusicPick" class="btn-sm">Scegli</button>
+              <h3>Music track</h3>
+              <button id="btnMusicPick" class="btn-sm">Choose</button>
             </div>
-            <div id="musicEmpty" class="muted">Nessuna musica. Verrà mixata sotto l'audio delle clip.</div>
+            <div id="musicEmpty" class="muted">No music. It will be mixed under the clip audio.</div>
             <div id="musicBody" hidden>
               <div class="music-name" id="musicName"></div>
               <div class="field">
@@ -522,20 +626,20 @@
                 </div>
               </div>
               <label class="toggle-item">
-                <span class="toggle-label">Loop musica</span>
+                <span class="toggle-label">Loop music</span>
                 <span class="toggle"><input id="musicLoop" type="checkbox" checked><span class="slider"></span></span>
               </label>
-              <button id="btnMusicRemove" class="btn-sm btn-cancel">Rimuovi musica</button>
+              <button id="btnMusicRemove" class="btn-sm btn-cancel">Remove music</button>
             </div>
           </div>
 
           <div class="panel-section export-panel">
-            <h3>Esportazione</h3>
+            <h3>Export</h3>
             <div class="settings-grid compact">
               <div class="field">
-                <label for="exportRes">Risoluzione</label>
+                <label for="exportRes">Resolution</label>
                 <select id="exportRes">
-                  <option value="source" selected>Originale</option>
+                  <option value="source" selected>Original</option>
                   <option value="1080p">1080p 16:9</option>
                   <option value="720p">720p 16:9</option>
                   <option value="vertical">9:16 Reels/TikTok</option>
@@ -545,44 +649,44 @@
               <div class="field">
                 <label for="exportFps">FPS</label>
                 <select id="exportFps">
-                  <option value="source" selected>Originale</option>
+                  <option value="source" selected>Original</option>
                   <option value="24">24</option>
                   <option value="30">30</option>
                   <option value="60">60</option>
                 </select>
               </div>
               <div class="field">
-                <label for="exportFormat">Formato</label>
+                <label for="exportFormat">Format</label>
                 <select id="exportFormat">
                   <option value="mp4" selected>MP4 (H.264)</option>
                   <option value="mkv">MKV</option>
-                  <option value="m4a">Solo audio (M4A)</option>
+                  <option value="m4a">Audio only (M4A)</option>
                 </select>
               </div>
               <div class="field">
-                <label for="exportCrf">Qualità</label>
+                <label for="exportCrf">Quality</label>
                 <select id="exportCrf">
-                  <option value="18">Alta</option>
-                  <option value="20" selected>Ottima</option>
-                  <option value="23">Media</option>
-                  <option value="28">Compatta</option>
+                  <option value="18">High</option>
+                  <option value="20" selected>Best</option>
+                  <option value="23">Medium</option>
+                  <option value="28">Compact</option>
                 </select>
               </div>
               <div class="field">
-                <label for="editorDir">Cartella output</label>
+                <label for="editorDir">Output folder</label>
                 <div class="folder-row">
                   <input id="editorDir" type="text" placeholder="Downloads">
-                  <button class="btn-icon" data-pick-folder="editor" title="Sfoglia">Sfoglia</button>
+                  <button class="btn-icon" data-pick-folder="editor" title="Browse">Browse</button>
                 </div>
               </div>
             </div>
-            <button id="btnExport" class="btn-dl btn-export">Esporta montaggio</button>
+            <button id="btnExport" class="btn-dl btn-export">Export timeline</button>
             <div class="progress-bar export-bar"><div id="exportBar" class="progress-fill" style="width:0%"></div></div>
-            <div id="exportStatus" class="export-status">Pronto per esportare.</div>
-            <button id="btnCancelExport" class="btn-sm btn-cancel" hidden>Annulla esportazione</button>
+            <div id="exportStatus" class="export-status">Ready to export.</div>
+            <button id="btnCancelExport" class="btn-sm btn-cancel" hidden>Cancel export</button>
             <div id="exportResult" class="export-result" hidden>
-              <button id="btnOpenExport" class="btn-sm">Apri file</button>
-              <button id="btnRevealExport" class="btn-sm">Cartella</button>
+              <button id="btnOpenExport" class="btn-sm">Open file</button>
+              <button id="btnRevealExport" class="btn-sm">Folder</button>
             </div>
           </div>
         </aside>
@@ -594,55 +698,55 @@
       <div class="left compress-left" id="compressSettings">
         <div class="source-card" id="compressDrop">
           <div class="source-card-body">
-            <div class="source-card-title" id="compressSourceName">Nessun video selezionato</div>
-            <div class="source-card-meta" id="compressSourceMeta">Scegli un file o trascinalo qui per iniziare</div>
+            <div class="source-card-title" id="compressSourceName">No video selected</div>
+            <div class="source-card-meta" id="compressSourceMeta">Choose a file or drop it here to start</div>
           </div>
-          <button id="btnPickCompress" class="btn-dl">Scegli video</button>
+          <button id="btnPickCompress" class="btn-dl">Choose video</button>
         </div>
 
-        <div class="section-title">Preset rapidi</div>
+        <div class="section-title">Quick presets</div>
         <div class="preset-grid" id="compressPresets">
-          <button class="preset-btn" data-compress-preset="max">Massima compressione<span>AV1/HEVC · file più piccolo</span></button>
-          <button class="preset-btn active" data-compress-preset="balanced">Bilanciato<span>Buona qualità, peso ridotto</span></button>
-          <button class="preset-btn" data-compress-preset="quality">Alta qualità<span>HEVC, quasi trasparente</span></button>
-          <button class="preset-btn" data-compress-preset="social">Social 1080p<span>H.264 compatibile</span></button>
-          <button class="preset-btn" data-compress-preset="archive">Archivio<span>Tutte le tracce, MKV</span></button>
-          <button class="preset-btn" data-compress-preset="gpu">GPU veloce<span>Render hardware</span></button>
-          <button class="preset-btn" data-compress-preset="webm">WebM leggero<span>VP9 + Opus</span></button>
+          <button class="preset-btn" data-compress-preset="max">Maximum compression<span>AV1/HEVC · smaller file</span></button>
+          <button class="preset-btn active" data-compress-preset="balanced">Balanced<span>Good quality, smaller size</span></button>
+          <button class="preset-btn" data-compress-preset="quality">High quality<span>HEVC, nearly transparent</span></button>
+          <button class="preset-btn" data-compress-preset="social">Social 1080p<span>H.264 compatible</span></button>
+          <button class="preset-btn" data-compress-preset="archive">Archive<span>All tracks, MKV</span></button>
+          <button class="preset-btn" data-compress-preset="gpu">Fast GPU<span>Hardware rendering</span></button>
+          <button class="preset-btn" data-compress-preset="webm">Light WebM<span>VP9 + Opus</span></button>
         </div>
 
         <div class="panel-section compress-panel">
           <div class="panel-title">
-            <h3>Formato e encoder</h3>
+            <h3>Format and encoder</h3>
             <span class="panel-badge" id="compressEncoderBadge">software</span>
           </div>
           <div class="settings-grid">
             <div class="field">
-              <label for="compressContainer">Contenitore</label>
+              <label for="compressContainer">Container</label>
               <select id="compressContainer">
-                <option value="mp4" selected>MP4 · massima compatibilità</option>
-                <option value="mkv">MKV · tutte le tracce e formati</option>
+                <option value="mp4" selected>MP4 · maximum compatibility</option>
+                <option value="mkv">MKV · all tracks and formats</option>
                 <option value="webm">WebM · VP9/AV1 + Opus</option>
               </select>
             </div>
             <div class="field">
-              <label for="compressEncoder">Encoder video</label>
+              <label for="compressEncoder">Video encoder</label>
               <select id="compressEncoder"></select>
             </div>
             <div class="field full">
-              <div id="compressEncoderNote" class="encoder-note">Rilevo gli encoder disponibili...</div>
+              <div id="compressEncoderNote" class="encoder-note">Detecting available encoders...</div>
             </div>
           </div>
 
           <div class="settings-grid compact">
             <div class="field">
-              <label for="compressQualityMode">Controllo qualità</label>
+              <label for="compressQualityMode">Quality control</label>
               <select id="compressQualityMode">
-                <option value="quality" selected>Qualità costante (CRF/CQ)</option>
-                <option value="bitrate">Bitrate variabile (VBR)</option>
-                <option value="cbr">Bitrate costante (CBR)</option>
-                <option value="twopass">2 passate (bitrate)</option>
-                <option value="target">Dimensione target (MB)</option>
+                <option value="quality" selected>Constant quality (CRF/CQ)</option>
+                <option value="bitrate">Variable bitrate (VBR)</option>
+                <option value="cbr">Constant bitrate (CBR)</option>
+                <option value="twopass">Two-pass (bitrate)</option>
+                <option value="target">Target size (MB)</option>
               </select>
             </div>
             <div class="field" id="compressQualityField">
@@ -654,22 +758,22 @@
 
           <div class="settings-grid compact" id="compressTargetFields" hidden>
             <div class="field">
-              <label for="compressTarget">Dimensione finale (MB)</label>
+              <label for="compressTarget">Final size (MB)</label>
               <input id="compressTarget" type="number" min="1" step="1" value="700">
             </div>
             <div class="field">
-              <label for="compressTargetPreset">Scorciatoie</label>
+              <label for="compressTargetPreset">Shortcuts</label>
               <select id="compressTargetPreset">
-                <option value="">Personalizzata</option>
-                <option value="50">50 MB · clip social</option>
-                <option value="100">100 MB · condivisione rapida</option>
-                <option value="250">250 MB · buona qualità</option>
+                <option value="">Custom</option>
+                <option value="50">50 MB · social clip</option>
+                <option value="100">100 MB · quick sharing</option>
+                <option value="250">250 MB · good quality</option>
                 <option value="700">700 MB · CD</option>
-                <option value="2000">2 GB · archivio</option>
+                <option value="2000">2 GB · archive</option>
               </select>
             </div>
             <div class="field full">
-              <div id="compressTargetNote" class="encoder-note">Il bitrate video viene calcolato dalla durata per rientrare nella dimensione scelta.</div>
+              <div id="compressTargetNote" class="encoder-note">The video bitrate is calculated from the duration to fit the chosen size.</div>
             </div>
           </div>
 
@@ -692,10 +796,10 @@
           </div>
 
           <details class="advanced-box">
-            <summary>Opzioni encoder avanzate</summary>
+            <summary>Advanced encoder options</summary>
             <div class="settings-grid compact">
               <div class="field">
-                <label for="compressPreset">Preset velocità</label>
+                <label for="compressPreset">Speed preset</label>
                 <select id="compressPreset"></select>
               </div>
               <div class="field" id="compressTuneField">
@@ -703,11 +807,11 @@
                 <select id="compressTune"><option value="">Auto</option></select>
               </div>
               <div class="field" id="compressProfileField">
-                <label for="compressProfile">Profilo</label>
+                <label for="compressProfile">Profile</label>
                 <select id="compressProfile"><option value="auto">Auto</option></select>
               </div>
               <div class="field">
-                <label for="compressLevel">Livello</label>
+                <label for="compressLevel">Level</label>
                 <select id="compressLevel">
                   <option value="auto">Auto</option>
                   <option value="3.0">3.0</option>
@@ -740,69 +844,69 @@
                 <input id="compressRefs" type="number" min="0" max="16" step="1" value="0" placeholder="auto">
               </div>
               <div class="field full" id="compressCustomField">
-                <label for="compressCustom">Parametri extra encoder</label>
-                <input id="compressCustom" type="text" placeholder="es. aq-mode=3:psy-rd=1.0" spellcheck="false">
+                <label for="compressCustom">Extra encoder parameters</label>
+                <input id="compressCustom" type="text" placeholder="e.g. aq-mode=3:psy-rd=1.0" spellcheck="false">
               </div>
             </div>
             <div class="toggles-grid">
               <label class="toggle-item"><span class="toggle-label">Faststart MP4</span><span class="toggle"><input id="compressFaststart" type="checkbox" checked><span class="slider"></span></span></label>
-              <label class="toggle-item"><span class="toggle-label">Mantieni capitoli</span><span class="toggle"><input id="compressKeepChapters" type="checkbox" checked><span class="slider"></span></span></label>
-              <label class="toggle-item"><span class="toggle-label">Mantieni metadata</span><span class="toggle"><input id="compressKeepMetadata" type="checkbox" checked><span class="slider"></span></span></label>
-              <label class="toggle-item"><span class="toggle-label">Allegati/font MKV</span><span class="toggle"><input id="compressKeepAttachments" type="checkbox" checked><span class="slider"></span></span></label>
+              <label class="toggle-item"><span class="toggle-label">Keep chapters</span><span class="toggle"><input id="compressKeepChapters" type="checkbox" checked><span class="slider"></span></span></label>
+              <label class="toggle-item"><span class="toggle-label">Keep metadata</span><span class="toggle"><input id="compressKeepMetadata" type="checkbox" checked><span class="slider"></span></span></label>
+              <label class="toggle-item"><span class="toggle-label">MKV attachments/fonts</span><span class="toggle"><input id="compressKeepAttachments" type="checkbox" checked><span class="slider"></span></span></label>
             </div>
           </details>
         </div>
 
         <div class="panel-section compress-panel">
-          <div class="panel-title"><h3>Video</h3><span class="panel-badge">filtri</span></div>
-          <div class="section-title inner">Taglio</div>
+          <div class="panel-title"><h3>Video</h3><span class="panel-badge">filters</span></div>
+          <div class="section-title inner">Trim</div>
           <div class="settings-grid compact">
             <div class="field">
-              <label for="compressStart">Da (secondi)</label>
+              <label for="compressStart">From (seconds)</label>
               <input id="compressStart" type="number" min="0" step="0.1" value="0">
             </div>
             <div class="field">
-              <label for="compressEnd">A (secondi)</label>
-              <input id="compressEnd" type="number" min="0" step="0.1" value="0" placeholder="fine video">
+              <label for="compressEnd">To (seconds)</label>
+              <input id="compressEnd" type="number" min="0" step="0.1" value="0" placeholder="end of video">
             </div>
             <div class="field">
               <label>&nbsp;</label>
-              <button id="btnCompressFullRange" class="btn-sm">Tutto il video</button>
+              <button id="btnCompressFullRange" class="btn-sm">Whole video</button>
             </div>
             <div class="field full">
-              <div id="compressRangeNote" class="encoder-note">Nessun taglio: viene compresso tutto il video.</div>
+              <div id="compressRangeNote" class="encoder-note">No trim: the whole video is compressed.</div>
             </div>
           </div>
           <div class="settings-grid compact">
             <div class="field">
-              <label for="compressVideoTrack">Traccia video</label>
-              <select id="compressVideoTrack"><option value="0">Principale</option></select>
+              <label for="compressVideoTrack">Video track</label>
+              <select id="compressVideoTrack"><option value="0">Main</option></select>
             </div>
             <div class="field">
-              <label for="compressResolution">Risoluzione</label>
+              <label for="compressResolution">Resolution</label>
               <select id="compressResolution">
-                <option value="source" selected>Originale</option>
+                <option value="source" selected>Original</option>
                 <option value="2160p">4K (2160p)</option>
                 <option value="1440p">2K (1440p)</option>
                 <option value="1080p">Full HD (1080p)</option>
                 <option value="720p">HD (720p)</option>
                 <option value="480p">SD (480p)</option>
                 <option value="360p">Low (360p)</option>
-                <option value="custom">Personalizzata</option>
+                <option value="custom">Custom</option>
               </select>
             </div>
             <div class="field" id="compressCustomSize" hidden>
-              <label for="compressWidth">Larghezza</label>
+              <label for="compressWidth">Width</label>
               <input id="compressWidth" type="number" min="2" step="2" value="1920" placeholder="auto">
             </div>
             <div class="field" id="compressCustomSize2" hidden>
-              <label for="compressHeight">Altezza</label>
+              <label for="compressHeight">Height</label>
               <input id="compressHeight" type="number" min="2" step="2" value="1080" placeholder="auto">
             </div>
             <div class="field">
               <label for="compressFps">FPS</label>
               <select id="compressFps">
-                <option value="source" selected>Originale</option>
+                <option value="source" selected>Original</option>
                 <option value="60">60</option>
                 <option value="50">50</option>
                 <option value="30">30</option>
@@ -811,41 +915,41 @@
               </select>
             </div>
             <div class="field">
-              <label for="compressDeinterlace">Deinterlaccia</label>
+              <label for="compressDeinterlace">Deinterlace</label>
               <select id="compressDeinterlace">
                 <option value="off" selected>No</option>
                 <option value="auto">Auto</option>
-                <option value="force">Forza</option>
+                <option value="force">Force</option>
               </select>
             </div>
             <div class="field">
-              <label for="compressDenoise">Riduci rumore</label>
+              <label for="compressDenoise">Reduce noise</label>
               <select id="compressDenoise">
                 <option value="off" selected>No</option>
-                <option value="light">Leggero</option>
-                <option value="medium">Medio</option>
-                <option value="strong">Forte</option>
+                <option value="light">Light</option>
+                <option value="medium">Medium</option>
+                <option value="strong">Strong</option>
               </select>
             </div>
             <div class="field">
-              <label for="compressSharpen">Nitidezza</label>
+              <label for="compressSharpen">Sharpness</label>
               <select id="compressSharpen">
                 <option value="off" selected>No</option>
-                <option value="light">Leggero</option>
-                <option value="strong">Forte</option>
+                <option value="light">Light</option>
+                <option value="strong">Strong</option>
               </select>
             </div>
           </div>
           <label class="toggle-item compact-toggle">
-            <span class="toggle-label">Non ingrandire oltre la risoluzione originale</span>
+            <span class="toggle-label">Do not upscale beyond the original resolution</span>
             <span class="toggle"><input id="compressNoUpscale" type="checkbox" checked><span class="slider"></span></span>
           </label>
-          <div class="section-title inner">Crop manuale (px) <button id="btnDetectCrop" class="btn-sm">Rileva bande nere</button></div>
+          <div class="section-title inner">Manual crop (px) <button id="btnDetectCrop" class="btn-sm">Detect black bars</button></div>
           <div class="settings-grid compact crop-grid">
-            <div class="field"><label for="compressCropTop">Alto</label><input id="compressCropTop" type="number" min="0" step="2" value="0"></div>
-            <div class="field"><label for="compressCropBottom">Basso</label><input id="compressCropBottom" type="number" min="0" step="2" value="0"></div>
-            <div class="field"><label for="compressCropLeft">Sinistra</label><input id="compressCropLeft" type="number" min="0" step="2" value="0"></div>
-            <div class="field"><label for="compressCropRight">Destra</label><input id="compressCropRight" type="number" min="0" step="2" value="0"></div>
+            <div class="field"><label for="compressCropTop">Top</label><input id="compressCropTop" type="number" min="0" step="2" value="0"></div>
+            <div class="field"><label for="compressCropBottom">Bottom</label><input id="compressCropBottom" type="number" min="0" step="2" value="0"></div>
+            <div class="field"><label for="compressCropLeft">Left</label><input id="compressCropLeft" type="number" min="0" step="2" value="0"></div>
+            <div class="field"><label for="compressCropRight">Right</label><input id="compressCropRight" type="number" min="0" step="2" value="0"></div>
           </div>
         </div>
 
@@ -853,22 +957,22 @@
           <div class="panel-title">
             <h3>Audio</h3>
             <div class="mini-actions">
-              <button class="btn-sm" data-audio-select="all">Tutte</button>
-              <button class="btn-sm" data-audio-select="none">Nessuna</button>
+              <button class="btn-sm" data-audio-select="all">All</button>
+              <button class="btn-sm" data-audio-select="none">None</button>
             </div>
           </div>
-          <div id="compressAudioTracks" class="track-list"><div class="muted">Nessuna traccia disponibile.</div></div>
+          <div id="compressAudioTracks" class="track-list"><div class="muted">No tracks available.</div></div>
           <label class="toggle-item compact-toggle">
-            <span class="toggle-label">Unisci le tracce selezionate in un mix</span>
+            <span class="toggle-label">Merge selected tracks into one mix</span>
             <span class="toggle"><input id="compressMerge" type="checkbox"><span class="slider"></span></span>
           </label>
           <div class="settings-grid compact">
             <div class="field">
-              <label for="compressAudioCodec">Codec audio</label>
-              <select id="compressAudioCodec"><option value="copy">Copia</option></select>
+              <label for="compressAudioCodec">Audio codec</label>
+              <select id="compressAudioCodec"><option value="copy">Copy</option></select>
             </div>
             <div class="field" id="compressAudioBitrateField">
-              <label for="compressAudioBitrate">Bitrate audio</label>
+              <label for="compressAudioBitrate">Audio bitrate</label>
               <select id="compressAudioBitrate">
                 <option value="64">64 kbps</option>
                 <option value="96">96 kbps</option>
@@ -881,9 +985,9 @@
               </select>
             </div>
             <div class="field">
-              <label for="compressAudioChannels">Canali</label>
+              <label for="compressAudioChannels">Channels</label>
               <select id="compressAudioChannels">
-                <option value="source" selected>Originale</option>
+                <option value="source" selected>Original</option>
                 <option value="mono">Mono</option>
                 <option value="stereo">Stereo</option>
                 <option value="5.1">5.1</option>
@@ -892,99 +996,99 @@
             <div class="field">
               <label for="compressAudioSampleRate">Sample rate</label>
               <select id="compressAudioSampleRate">
-                <option value="source" selected>Originale</option>
+                <option value="source" selected>Original</option>
                 <option value="44100">44.1 kHz</option>
                 <option value="48000">48 kHz</option>
               </select>
             </div>
           </div>
           <label class="toggle-item compact-toggle">
-            <span class="toggle-label">Normalizza volume (loudnorm −16 LUFS)</span>
+            <span class="toggle-label">Normalize volume (loudnorm −16 LUFS)</span>
             <span class="toggle"><input id="compressLoudnorm" type="checkbox"><span class="slider"></span></span>
           </label>
-          <div id="compressAudioHint" class="muted">Seleziona le tracce da mantenere. Attiva “Unisci” per fonderle in un'unica traccia.</div>
+          <div id="compressAudioHint" class="muted">Select the tracks to keep. Enable "Merge" to combine them into one track.</div>
         </div>
 
         <div class="panel-section compress-panel">
           <div class="panel-title">
-            <h3>Sottotitoli</h3>
+            <h3>Subtitles</h3>
             <div class="mini-actions">
-              <button class="btn-sm" data-sub-select="all">Tutti</button>
-              <button class="btn-sm" data-sub-select="none">Nessuno</button>
+              <button class="btn-sm" data-sub-select="all">All</button>
+              <button class="btn-sm" data-sub-select="none">None</button>
             </div>
           </div>
-          <div id="compressSubtitleTracks" class="track-list"><div class="muted">Nessuna traccia disponibile.</div></div>
+          <div id="compressSubtitleTracks" class="track-list"><div class="muted">No tracks available.</div></div>
           <label class="toggle-item compact-toggle">
-            <span class="toggle-label">Brucia i sottotitoli nel video (hardcode)</span>
+            <span class="toggle-label">Burn subtitles into the video (hardcode)</span>
             <span class="toggle"><input id="compressBurnSubs" type="checkbox"><span class="slider"></span></span>
           </label>
           <div class="field" id="compressBurnTrackField" hidden>
-            <label for="compressBurnTrack">Traccia da bruciare</label>
+            <label for="compressBurnTrack">Track to burn</label>
             <select id="compressBurnTrack"></select>
           </div>
-          <div id="compressSubtitleHint" class="muted">I sottotitoli testuali vengono convertiti nel formato del contenitore; quelli bitmap restano solo in MKV.</div>
+          <div id="compressSubtitleHint" class="muted">Text subtitles are converted to the container format; bitmap subtitles remain MKV-only.</div>
         </div>
       </div>
 
       <div class="right compress-right">
         <div class="panel-section gpu-panel">
           <div class="panel-title">
-            <h3>GPU e render</h3>
-            <button id="btnScanGpu" class="btn-sm">Scansiona</button>
+            <h3>GPU and rendering</h3>
+            <button id="btnScanGpu" class="btn-sm">Scan</button>
           </div>
-          <div id="gpuScanStatus" class="gpu-scan-status">Scansione non ancora eseguita.</div>
+          <div id="gpuScanStatus" class="gpu-scan-status">No scan yet.</div>
           <div id="gpuList" class="gpu-list"></div>
           <label class="toggle-item compact-toggle">
-            <span class="toggle-label">Forza la GPU per il render</span>
+            <span class="toggle-label">Force GPU rendering</span>
             <span class="toggle"><input id="forceGpu" type="checkbox" checked><span class="slider"></span></span>
           </label>
           <label class="toggle-item compact-toggle">
-            <span class="toggle-label">Decodifica GPU (NVDEC/D3D11VA)</span>
+            <span class="toggle-label">GPU decoding (NVDEC/D3D11VA)</span>
             <span class="toggle"><input id="compressHwAccel" type="checkbox" checked><span class="slider"></span></span>
           </label>
-          <div id="gpuEncoderHint" class="muted">La scansione verifica davvero quali encoder hardware si inizializzano.</div>
+          <div id="gpuEncoderHint" class="muted">The scan actually checks which hardware encoders initialize.</div>
         </div>
 
         <div class="panel-section estimate-panel">
           <div class="panel-title">
-            <h3>Stima del risultato</h3>
+            <h3>Result estimate</h3>
             <span class="panel-badge" id="compressEstimateBadge">auto</span>
           </div>
           <div class="estimate-box">
             <div class="estimate-size" id="compressEstimateSize">—</div>
-            <div class="estimate-sub" id="compressEstimateSub">Scegli un video per vedere la stima.</div>
+            <div class="estimate-sub" id="compressEstimateSub">Choose a video to see the estimate.</div>
             <div class="estimate-bar"><div id="compressEstimateFill" class="estimate-fill" style="width:0%"></div></div>
             <div class="estimate-grid" id="compressEstimateDetails"></div>
-            <div class="estimate-note" id="compressEstimateNote">La stima si aggiorna a ogni modifica ed è indicativa (±15%).</div>
+            <div class="estimate-note" id="compressEstimateNote">The estimate updates with every change and is approximate (±15%).</div>
           </div>
         </div>
 
         <div class="panel-section compress-run">
-          <h3>Compressione</h3>
+          <h3>Compression</h3>
           <div id="compressSummary" class="compress-summary">
-            <div class="muted">Scegli un video per vedere il riepilogo.</div>
+            <div class="muted">Choose a video to see the summary.</div>
           </div>
           <div class="field compress-output-field">
-            <label for="compressOutput">File di output</label>
+            <label for="compressOutput">Output file</label>
             <div class="folder-row">
-              <input id="compressOutput" type="text" placeholder="Scelto al salvataggio" spellcheck="false">
-              <button id="btnBrowseCompressOutput" class="btn-icon" title="Sfoglia">Sfoglia</button>
+              <input id="compressOutput" type="text" placeholder="Chosen on save" spellcheck="false">
+              <button id="btnBrowseCompressOutput" class="btn-icon" title="Browse">Browse</button>
             </div>
           </div>
           <div class="field compress-output-field">
-            <label for="compressDirField">Cartella compressioni</label>
+            <label for="compressDirField">Compression folder</label>
             <div class="folder-row">
               <input id="compressDirField" type="text" placeholder="Downloads" spellcheck="false">
-              <button class="btn-icon" data-pick-folder="compress" title="Sfoglia">Sfoglia</button>
+              <button class="btn-icon" data-pick-folder="compress" title="Browse">Browse</button>
             </div>
           </div>
-          <button id="btnStartCompress" class="btn-dl btn-compress" disabled>Comprimi video</button>
+          <button id="btnStartCompress" class="btn-dl btn-compress" disabled>Compress video</button>
           <div class="progress-bar compress-bar"><div id="compressBar" class="progress-fill" style="width:0%"></div></div>
-          <div id="compressStatus" class="export-status">Pronto per comprimere.</div>
-          <button id="btnCancelCompress" class="btn-sm btn-cancel" hidden>Annulla compressione</button>
+          <div id="compressStatus" class="export-status">Ready to compress.</div>
+          <button id="btnCancelCompress" class="btn-sm btn-cancel" hidden>Cancel compression</button>
           <div id="compressResult" class="export-result" hidden>
-            <button id="btnOpenCompress" class="btn-sm">Apri file</button>
-            <button id="btnRevealCompress" class="btn-sm">Cartella</button>
+            <button id="btnOpenCompress" class="btn-sm">Open file</button>
+            <button id="btnRevealCompress" class="btn-sm">Folder</button>
           </div>
           <div id="compressResultText" class="compress-result-text" hidden></div>
         </div>
@@ -996,45 +1100,45 @@
       <div class="left">
         <div class="panel-section info-block">
           <div class="panel-title">
-            <h3>Sistema</h3>
+            <h3>System</h3>
             <span class="panel-badge" id="infoAppBadge">...</span>
           </div>
-          <div id="infoSystem" class="info-table"><div class="muted">Caricamento...</div></div>
+          <div id="infoSystem" class="info-table"><div class="muted">Loading...</div></div>
         </div>
 
         <div class="panel-section info-block">
           <div class="panel-title">
-            <h3>Cartelle</h3>
+            <h3>Folders</h3>
           </div>
           <div class="dir-list">
             <div class="dir-row">
               <div class="dir-main">
                 <div class="dir-name">Download</div>
-                <div class="dir-path" id="dirPathDownloads">Predefinita</div>
+                <div class="dir-path" id="dirPathDownloads">Default</div>
               </div>
               <div class="dir-actions">
-                <button class="btn-sm" data-set-folder="downloadsDir">Cambia</button>
-                <button class="btn-sm" data-reset-folder="downloadsDir">Ripristina</button>
+                <button class="btn-sm" data-set-folder="downloadsDir">Change</button>
+                <button class="btn-sm" data-reset-folder="downloadsDir">Reset</button>
               </div>
             </div>
             <div class="dir-row">
               <div class="dir-main">
-                <div class="dir-name">Compressioni</div>
-                <div class="dir-path" id="dirPathCompress">Predefinita</div>
+                <div class="dir-name">Compressions</div>
+                <div class="dir-path" id="dirPathCompress">Default</div>
               </div>
               <div class="dir-actions">
-                <button class="btn-sm" data-set-folder="compressDir">Cambia</button>
-                <button class="btn-sm" data-reset-folder="compressDir">Ripristina</button>
+                <button class="btn-sm" data-set-folder="compressDir">Change</button>
+                <button class="btn-sm" data-reset-folder="compressDir">Reset</button>
               </div>
             </div>
             <div class="dir-row">
               <div class="dir-main">
-                <div class="dir-name">Montaggi</div>
-                <div class="dir-path" id="dirPathEditor">Predefinita</div>
+                <div class="dir-name">Timelines</div>
+                <div class="dir-path" id="dirPathEditor">Default</div>
               </div>
               <div class="dir-actions">
-                <button class="btn-sm" data-set-folder="editorDir">Cambia</button>
-                <button class="btn-sm" data-reset-folder="editorDir">Ripristina</button>
+                <button class="btn-sm" data-set-folder="editorDir">Change</button>
+                <button class="btn-sm" data-reset-folder="editorDir">Reset</button>
               </div>
             </div>
           </div>
@@ -1042,62 +1146,90 @@
 
         <div class="panel-section info-block">
           <div class="panel-title">
-            <h3>GPU e accelerazione</h3>
-            <button id="btnInfoScanGpu" class="btn-sm">Scansiona</button>
+            <h3>GPU and acceleration</h3>
+            <button id="btnInfoScanGpu" class="btn-sm">Scan</button>
           </div>
-          <div id="infoGpuStatus" class="gpu-scan-status">Scansione non ancora eseguita.</div>
+          <div id="infoGpuStatus" class="gpu-scan-status">No scan yet.</div>
           <div id="infoGpuList" class="gpu-list"></div>
           <div id="infoEncoders" class="gpu-chips"></div>
         </div>
 
         <div class="panel-section info-block">
           <div class="panel-title">
-            <h3>Dipendenze</h3>
-            <button id="btnInfoCheckDeps" class="btn-sm">Ricontrolla</button>
+            <h3>Dependencies</h3>
+            <button id="btnInfoCheckDeps" class="btn-sm">Check again</button>
           </div>
-          <div id="infoDeps" class="deps-list"><div class="muted">Controllo in corso...</div></div>
+          <div id="infoDeps" class="deps-list"><div class="muted">Checking...</div></div>
           <div class="progress-bar compress-bar"><div id="depsBar" class="progress-fill" style="width:0%"></div></div>
-          <div id="depsStatus" class="export-status">yt-dlp, FFmpeg e ffprobe vengono verificati all'avvio.</div>
+          <div id="depsStatus" class="export-status">yt-dlp, FFmpeg, and ffprobe are checked at startup.</div>
         </div>
       </div>
 
       <div class="right">
         <div class="panel-section">
-          <div class="panel-title"><h3>Settings consigliati</h3><span class="panel-badge" id="infoRecommendedBadge">auto</span></div>
-          <div id="infoRecommended" class="compress-summary"><div class="muted">Scansiona il sistema per i consigli.</div></div>
-          <button id="btnApplyRecommended" class="btn-dl btn-compress">Usa in Comprimi</button>
+          <div class="panel-title"><h3>Recommended settings</h3><span class="panel-badge" id="infoRecommendedBadge">auto</span></div>
+          <div id="infoRecommended" class="compress-summary"><div class="muted">Scan the system for recommendations.</div></div>
+          <button id="btnApplyRecommended" class="btn-dl btn-compress">Use in Compress</button>
         </div>
         <div class="panel-section updater-card">
-          <div class="panel-title"><h3>Aggiornamenti</h3><span class="panel-badge" id="updateBadge">auto</span></div>
-          <div id="updateStatusText" class="update-status">Controllo automatico ogni 6 ore.</div>
+          <div class="panel-title"><h3>Updates</h3><span class="panel-badge" id="updateBadge">auto</span></div>
+          <div id="updateStatusText" class="update-status">Automatic check every 6 hours.</div>
           <div class="progress-bar update-bar"><div id="updateBar" class="progress-fill" style="width:0%"></div></div>
           <div class="updater-actions">
-            <button id="btnCheckUpdate" class="btn-sm">Verifica</button>
-            <button id="btnInstallUpdate" class="btn-sm" hidden>Riavvia e aggiorna</button>
+            <button id="btnCheckUpdate" class="btn-sm">Check</button>
+            <button id="btnInstallUpdate" class="btn-sm" hidden>Restart and update</button>
           </div>
         </div>
         <div class="panel-section">
           <h3>Copyright</h3>
-          <div class="info-license">MoliDowloader<br>© 2026 Molinays · Licenza MIT</div>
+          <div class="info-license">MoliDowloader<br>© 2026 Molinays · MIT License</div>
         </div>
       </div>
     </main>
   </div>
 
+  <div id="errorModal" class="modal-overlay" aria-hidden="true">
+    <div class="modal error-modal" role="dialog" aria-modal="true" aria-labelledby="errorTitle">
+      <div class="error-head">
+        <span id="errorIcon" class="error-icon" aria-hidden="true">!</span>
+        <div class="error-head-text">
+          <span id="errorCode" class="error-code">MD-900</span>
+          <h3 id="errorTitle">Download failed</h3>
+        </div>
+        <button id="btnCloseError" class="btn-close" aria-label="Close">×</button>
+      </div>
+      <div class="error-body">
+        <p id="errorMessage" class="error-message"></p>
+        <p id="errorHint" class="error-hint"></p>
+        <details class="error-raw">
+          <summary>What the site answered</summary>
+          <pre id="errorRaw"></pre>
+        </details>
+      </div>
+      <div class="error-actions">
+        <button id="btnErrorLogin" class="btn-dl" type="button" hidden>Sign in</button>
+        <button id="btnErrorRetry" class="btn-sm" type="button" hidden>Retry download</button>
+        <button id="btnErrorUpdate" class="btn-sm" type="button" hidden>Update yt-dlp</button>
+        <button id="btnErrorLog" class="btn-sm" type="button" hidden>Open log</button>
+        <button id="btnErrorDismiss" class="btn-sm" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div id="logModal" class="modal-overlay" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal-head">
-        <h3 id="modalTitle">Log download</h3>
-        <button id="btnCloseLog" class="btn-close" aria-label="Chiudi">×</button>
+        <h3 id="modalTitle">Download log</h3>
+        <button id="btnCloseLog" class="btn-close" aria-label="Close">×</button>
       </div>
-      <div id="logBox" class="log-box">Caricamento...</div>
+      <div id="logBox" class="log-box">Loading...</div>
     </div>
   </div>
 
   <div id="dropOverlay" class="drop-overlay" aria-hidden="true">
     <div class="drop-overlay-card">
-      <div class="drop-overlay-title">Rilascia per importare</div>
-      <div class="drop-overlay-sub">Video e audio verranno aggiunti al montaggio</div>
+      <div class="drop-overlay-title">Drop to import</div>
+      <div class="drop-overlay-sub">Video and audio will be added to the timeline</div>
     </div>
   </div>
 

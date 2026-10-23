@@ -2,6 +2,8 @@
 'use strict';
 
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const links = require('../shared/links');
+const errors = require('../shared/errors');
 
 const channels = new Set([
   'download:update',
@@ -10,6 +12,7 @@ const channels = new Set([
   'compress:progress',
   'deps:progress',
   'update:status',
+  'binaries:ready',
 ]);
 
 function on(channel, listener) {
@@ -62,6 +65,7 @@ contextBridge.exposeInMainWorld('moli', {
   },
 
   startDownloads: (payload) => ipcRenderer.invoke('download:start', payload),
+  retryDownload: (id) => ipcRenderer.invoke('download:retry', id),
   cancelDownload: (id) => ipcRenderer.invoke('download:cancel', id),
   getJob: (id) => ipcRenderer.invoke('download:get', id),
   listJobs: () => ipcRenderer.invoke('download:list'),
@@ -90,6 +94,11 @@ contextBridge.exposeInMainWorld('moli', {
 
   reveal: (filePath) => ipcRenderer.invoke('shell:reveal', filePath),
   openPath: (filePath) => ipcRenderer.invoke('shell:open', filePath),
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+
+  // Stessa logica di riconoscimento e di messaggi del processo principale.
+  linkInfo: (url) => links.info(url),
+  explainError: (message, url) => errors.explain(message, { url }),
 
   on,
 });

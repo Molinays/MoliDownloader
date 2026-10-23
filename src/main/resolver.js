@@ -31,8 +31,9 @@ const BROWSER_ATTEMPTS = 2;
 const BROWSER_POLL = 400;
 const BROWSER_RELOAD_PAUSE = 1500;
 const BROWSER_PARTITION = 'persist:moli-player';
-const BROWSER_PAGE_TIMEOUT = 30000;
+const BROWSER_PAGE_TIMEOUT = 45000;
 let pageSessionCounter = 0;
+let genericResolvers = 0;
 
 function hostOf(rawUrl) {
   try {
@@ -113,13 +114,18 @@ function normalizeTitle(value) {
 }
 
 function titleFromHtml(html) {
+  // og:title e` il nome del film; l'h1 di molti siti contiene la sinossi
+  // (che finiva nel nome del file, creando percorsi troppo lunghi).
+  const og = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+  if (og) {
+    const value = normalizeTitle(og[1]);
+    if (value) return value;
+  }
   const heading = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   if (heading) {
     const value = normalizeTitle(heading[1]);
     if (value) return value;
   }
-  const og = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
-  if (og) return normalizeTitle(og[1]);
   const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   if (title) return normalizeTitle(title[1]);
   return '';
@@ -472,7 +478,7 @@ async function resolveGenericHttp(target, log) {
     const item = queue.shift();
     if (seen.has(item.url) || item.depth > MAX_IFRAME_DEPTH) continue;
     seen.add(item.url);
-    log(`Apro ${hostOf(item.url) || item.url}...`);
+    log(`Opening ${hostOf(item.url) || item.url}...`);
 
     let page = null;
     try {
@@ -489,7 +495,7 @@ async function resolveGenericHttp(target, log) {
       if (isEmbedHost(candidate) && !isPlaylistUrl(candidate)) continue;
       const stream = await verifyCandidate(candidate, pageUrl).catch(() => '');
       if (stream) {
-        log(`Flusso trovato in ${hostOf(candidate) || 'pagina'}.`);
+        log(`Stream found in ${hostOf(candidate) || 'page'}.`);
         return { ...withHeaders(stream, pageUrl), title };
       }
     }
@@ -502,7 +508,7 @@ async function resolveGenericHttp(target, log) {
           const playlist = await request(candidate, `${new URL(pageUrl).origin}/`);
           const stream = extractStream(playlist.body, candidate);
           if (stream) {
-            log('Playlist del player trovata.');
+            log('Player playlist found.');
             return { ...withHeaders(stream, `${new URL(candidate).origin}/`), title };
           }
         } catch {
@@ -534,7 +540,7 @@ async function request(url, referer) {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT),
   });
   if (!response.ok) {
-    throw new Error(`Il sito ha risposto ${response.status} (${response.statusText || 'errore'}) su ${hostOf(url) || url}`);
+    throw new Error(`The site returned ${response.status} (${response.statusText || 'error'}) on ${hostOf(url) || url}`);
   }
   return { body: await response.text(), finalUrl: response.url || url };
 }
@@ -564,7 +570,7 @@ async function followToEmbed(html, pageUrl, referer, log) {
     if (!candidate) return fallback;
     if (isEmbedHost(candidate)) return candidate;
     fallback = fallback || candidate;
-    log(`Apro il player intermedio (${hostOf(candidate)})...`);
+    log(`Opening the intermediate player (${hostOf(candidate)})...`);
     try {
       const page = await request(candidate, referer);
       currentHtml = page.body;
@@ -584,15 +590,15 @@ async function resolveWithHttp(target, log) {
   let embedUrl = '';
 
   if (isStreamingHost(target)) {
-    log('Apertura della pagina del sito...');
+    log('Opening the site page...');
     const page = await request(target);
     referer = page.finalUrl || target;
     title = titleFromHtml(page.body);
     embedUrl = await followToEmbed(page.body, page.finalUrl || target, referer, log);
     if (!embedUrl) {
-      throw new Error('Nessun player trovato nella pagina: il sito potrebbe richiedere un accesso o aver cambiato struttura.');
+      throw new Error('No player found on the page: the site may require a login or has changed its layout.');
     }
-    log(`Player individuato: ${hostOf(embedUrl)}`);
+    log(`Player found: ${hostOf(embedUrl)}`);
   } else if (isEmbedHost(target) && !isPlaylistUrl(target)) {
     embedUrl = target;
   }
@@ -600,14 +606,14 @@ async function resolveWithHttp(target, log) {
   let streamUrl = '';
   let streamReferer = referer;
   if (embedUrl) {
-    log('Lettura del player...');
+    log('Reading the player...');
     const embed = await request(embedUrl, referer);
     if (!title) title = titleFromHtml(embed.body);
     const playlistUrl = extractPlaylist(embed.body, embed.finalUrl || embedUrl);
     if (!playlistUrl) {
-      throw new Error('Playlist non trovata nel player: il link potrebbe essere scaduto, riprova dal sito.');
+      throw new Error('Playlist not found in the player: the link may have expired, try again from the site.');
     }
-    log('Playlist HLS trovata, recupero il flusso...');
+    log('HLS playlist found, fetching the stream...');
     streamReferer = `${new URL(embedUrl).origin}/`;
     let playlist = null;
     let playlistRequestUrl = playlistUrl;
@@ -621,19 +627,19 @@ async function resolveWithHttp(target, log) {
         lastError = error;
       }
     }
-    if (!playlist) throw lastError || new Error('Playlist non raggiungibile.');
+    if (!playlist) throw lastError || new Error('Playlist unreachable.');
     streamUrl = extractStream(playlist.body, playlistRequestUrl) || playlistRequestUrl;
   } else {
-    log('Lettura della playlist...');
+    log('Reading the playlist...');
     streamUrl = target;
     const playlist = await request(streamUrl, referer);
     const extracted = extractStream(playlist.body, streamUrl);
-    if (!extracted) throw new Error('Il link non punta a una playlist o a un flusso video.');
+    if (!extracted) throw new Error('The link does not point to a playlist or video stream.');
     streamUrl = extracted;
   }
 
   const headers = headersFor(streamUrl, streamReferer);
-  log('Flusso pronto per il download.');
+  log('Stream ready for download.');
   return { url: streamUrl, title, referer: headers.referer, headers };
 }
 
@@ -742,9 +748,9 @@ async function readPageTitle(win) {
       `(function(){try{
         var meta=document.querySelector('meta[property="og:title"],meta[name="twitter:title"]');
         if(meta&&meta.content&&meta.content.trim())return meta.content.trim();
-        var lines=(document.body.innerText||'').split('\\n').map(function(s){return s.trim();}).filter(Boolean);
-        var long=lines.filter(function(l){return l.length>20&&!/watch more|tiktok|guarda ora|scopri/i.test(l);}).sort(function(a,b){return b.length-a.length;})[0];
-        return long||document.title||'';
+        var heading=document.querySelector('h1');
+        if(heading&&heading.textContent&&heading.textContent.trim())return heading.textContent.trim();
+        return document.title||'';
       }catch(e){return '';}})()`,
       false,
     )
@@ -797,7 +803,7 @@ async function sessionFetch(ses, url, referer) {
   const headers = { Accept: 'application/json,text/plain,*/*' };
   if (referer) headers.Referer = referer;
   const response = await ses.fetch(url, { headers });
-  if (!response.ok) throw new Error(`Il player ha risposto ${response.status}`);
+  if (!response.ok) throw new Error(`The player returned ${response.status}`);
   return response.text();
 }
 
@@ -805,7 +811,7 @@ async function sessionFetch(ses, url, referer) {
 async function waitForStream(win, ses, capture, log, deadline) {
   let ticks = 0;
   while (Date.now() < deadline) {
-    if (capture.stream) return { url: capture.stream, source: 'flusso HLS del player' };
+    if (capture.stream) return { url: capture.stream, source: 'player HLS stream' };
     if (capture.denied >= 2) return { stale: true };
 
     if (capture.playlist) {
@@ -838,7 +844,7 @@ async function waitForStream(win, ses, capture, log, deadline) {
     }
 
     ticks += 1;
-    if (ticks % 10 === 0) log('Attendo il flusso dal player...');
+    if (ticks % 10 === 0) log('Waiting for the player stream...');
     await new Promise((resolve) => setTimeout(resolve, BROWSER_POLL));
   }
   return null;
@@ -890,7 +896,7 @@ async function resolveWithBrowser(target, log) {
       win.webContents.once('did-finish-load', done);
       win.webContents.once('did-fail-load', (_event, code, description, _url, isMainFrame) => {
         if (isMainFrame === false || code === -3) return;
-        loadError = `${description || 'errore di rete'} (${code})`;
+        loadError = `${description || 'network error'} (${code})`;
         done();
       });
       if (reload) {
@@ -907,7 +913,7 @@ async function resolveWithBrowser(target, log) {
     });
 
   try {
-    log('Apro il player nel browser interno...');
+    log('Opening the player in the internal browser...');
     let loadError = await loadWindow(false);
     let found = await waitForStream(win, ses, capture, log, Date.now() + BROWSER_ATTEMPT_TIMEOUT);
     let sawDenied = Boolean(found && found.stale);
@@ -917,10 +923,10 @@ async function resolveWithBrowser(target, log) {
       const stale = Boolean(found && found.stale);
       log(
         stale
-          ? 'Token rifiutato dal player: ricarico la pagina per averne uno nuovo...'
+          ? 'Token rejected by the player: reloading the page for a fresh one...'
           : attempt === 1
-            ? 'Ricarico il player per ottenere un link fresco...'
-            : 'Nuovo tentativo con il player...',
+            ? 'Reloading the player for a fresh link...'
+            : 'Retrying with the player...',
       );
       if (!stale) await new Promise((resolve) => setTimeout(resolve, BROWSER_RELOAD_PAUSE));
       resetCapture();
@@ -931,21 +937,21 @@ async function resolveWithBrowser(target, log) {
     if (!found || found.stale) {
       if (sawDenied && !loadError) {
         const denied = new Error(
-          'Il player ha rifiutato il flusso (richieste 403): riprova fra qualche istante, il sito limita le richieste ravvicinate.',
+          'The player rejected the stream (403): try again in a moment, the site limits rapid requests.',
         );
         denied.noStreamDenied = true;
         throw denied;
       }
       throw new Error(
         loadError
-          ? `Caricamento del player non riuscito: ${loadError}.`
-          : 'Il player non ha caricato il flusso: il link potrebbe essere scaduto o richiedere un accesso.',
+          ? `Player failed to load: ${loadError}.`
+          : 'The player did not load a stream: the link may have expired or require a login.',
       );
     }
 
     const headers = headersFor(found.url, 'https://vixcloud.co/');
-    const title = normalizeTitle(win.webContents.getTitle());
-    log(`Flusso pronto per il download (${found.source}).`);
+    const title = await readPageTitle(win);
+    log(`Stream ready for download (${found.source}).`);
     return { url: found.url, title, referer: headers.referer, headers };
   } finally {
     try {
@@ -956,16 +962,42 @@ async function resolveWithBrowser(target, log) {
   }
 }
 /**
+ * Molti player partono solo dopo un clic o non avviano il <video> finche` la
+ * pagina non riceve un gesto utente. Nella finestra nascosta premiamo il primo
+ * pulsante di play disponibile, senza toccare la finestra dell'utente.
+ */
+async function nudgePlayer(win) {
+  for (const frame of allFrames(win)) {
+    await frame
+      .executeJavaScript(
+        `(function(){try{
+          var buttons=document.querySelectorAll('.vjs-big-play-button,[class*="play-button"],[class*="playButton"],button[aria-label*="Play"],button[aria-label*="play"],button[title*="Play"]');
+          for(var i=0;i<buttons.length;i++){try{if(!buttons[i].dataset.moliClicked){buttons[i].dataset.moliClicked='1';buttons[i].click();}}catch(e){}}
+          var videos=document.querySelectorAll('video');
+          for(var j=0;j<videos.length;j++){try{videos[j].muted=true;if(videos[j].paused)videos[j].play().catch(function(){});}catch(e){}}
+        }catch(e){}})()`,
+        false,
+      )
+      .catch(() => {});
+  }
+}
+
+/**
  * Ultimo tentativo per un sito qualunque: apre la pagina in una finestra vera
  * e cattura dall'esterno il primo flusso HLS/Mp4 che il player chiede. È lo
  * stesso principio delle estensioni che "trovano" il link del video.
  */
 async function resolveGenericBrowser(target, log) {
   const { BrowserWindow, session } = require('electron');
-  // Una sessione per tentativo: più download in parallelo possono cercare il
-  // flusso nello stesso momento senza sovrascriversi il listener di rete.
+  // La prima richiesta usa una sessione persistente: i cookie di sicurezza
+  // (Cloudflare e simili) restano validi per i tentativi successivi. In
+  // parallelo ogni download usa una sessione isolata per non sovrascrivere
+  // il listener di rete dell'altro.
   pageSessionCounter += 1;
-  const partition = `moli-page-${Date.now()}-${pageSessionCounter}`;
+  const partition = genericResolvers > 0
+    ? `moli-page-${Date.now()}-${pageSessionCounter}`
+    : 'persist:moli-resolver';
+  genericResolvers += 1;
   const ses = session.fromPartition(partition);
   try {
     ses.setUserAgent(UA);
@@ -1010,9 +1042,14 @@ async function resolveGenericBrowser(target, log) {
     },
   });
   win.webContents.setUserAgent(UA);
+  try {
+    win.webContents.setAudioMuted(true);
+  } catch {
+    /* opzionale */
+  }
 
   try {
-    log('Apro la pagina nel browser interno per intercettare il flusso...');
+    log('Opening the page in the internal browser to capture the stream...');
     win.loadURL(target, { userAgent: UA }).catch(() => {
       /* l'esito lo dà la cattura */
     });
@@ -1032,11 +1069,14 @@ async function resolveGenericBrowser(target, log) {
           found.source = 'video nella pagina';
         }
       }
-      if (ticks % 12 === 0) log('Attendo che il player chieda il video...');
+      // I player con pulsante "play" non partono da soli: proviamo ad avviarli.
+      if (!found.url && ticks % 4 === 0) await nudgePlayer(win);
+      if (ticks % 12 === 0) log('Waiting for the player to request the video...');
+      if (ticks % 36 === 0) log('If the site shows a security check, waiting for it to finish...');
     }
 
     if (!found.url) {
-      throw new Error('Il player non ha richiesto nessun flusso: il sito potrebbe richiedere un accesso o il link non contiene un video.');
+      throw new Error('The player did not request any stream: the site may require a login or the link has no video.');
     }
 
     try {
@@ -1055,9 +1095,10 @@ async function resolveGenericBrowser(target, log) {
     }
 
     const title = await readPageTitle(win);
-    log(`Flusso intercettato (${found.source || 'rete del player'}).`);
+    log(`Stream captured (${found.source || 'player network'}).`);
     return { ...withHeaders(streamUrl, found.referrer || target), title };
   } finally {
+    genericResolvers = Math.max(0, genericResolvers - 1);
     try {
       ses.webRequest.onCompleted(null);
     } catch {
@@ -1081,7 +1122,7 @@ async function resolve(rawUrl, onLog) {
 
   const parsed = new URL(target);
   if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('Protocollo non supportato');
+    throw new Error('Unsupported protocol');
   }
 
   // Pagine con player non VixCloud (animeunity, animesaturn): il flusso va
@@ -1099,11 +1140,11 @@ async function resolve(rawUrl, onLog) {
         return await resolveGenericBrowser(target, log);
       } catch (error) {
         throw new Error(
-          `${error.message}${httpError ? ` — percorso diretto: ${httpError.message}` : ''}`,
+          `${error.message}${httpError ? ` — direct path: ${httpError.message}` : ''}`,
         );
       }
     }
-    throw httpError || new Error('Nessun video trovato nella pagina: il sito potrebbe richiedere un accesso.');
+    throw httpError || new Error('No video found on the page: the site may require a login.');
   }
 
   // I siti di streaming servono il player solo nel browser: le richieste HTTP
@@ -1120,7 +1161,7 @@ async function resolve(rawUrl, onLog) {
     try {
       return await resolveWithHttp(target, log);
     } catch (httpError) {
-      throw new Error(`${browserError.message} — percorso diretto: ${httpError.message}`);
+      throw new Error(`${browserError.message} — direct path: ${httpError.message}`);
     }
   }
 
@@ -1133,11 +1174,11 @@ async function resolve(rawUrl, onLog) {
 
   if (!browserAvailable()) throw httpError;
 
-  log(`Richiesta diretta rifiutata (${httpError.message}).`);
+  log(`Direct request rejected (${httpError.message}).`);
   try {
     return await resolveWithBrowser(target, log);
   } catch (error) {
-    throw new Error(`${error.message} — percorso diretto: ${httpError.message}`);
+    throw new Error(`${error.message} — direct path: ${httpError.message}`);
   }
 }
 
@@ -1161,7 +1202,7 @@ async function resolveAuto(rawUrl, onLog) {
     const origin = hostOf(target) ? `https://${hostOf(target)}/` : '';
     const stream = await verifyMedia(target, origin).catch(() => '');
     if (stream) {
-      log('Link diretto a un file video.');
+      log('Direct link to a video file.');
       return { ...withHeaders(stream, origin), title: titleFromMediaUrl(target) };
     }
   }
@@ -1178,11 +1219,11 @@ async function resolveAuto(rawUrl, onLog) {
   }
   const tiktokId = tiktokVideoId(target);
   if (tiktokId && browserAvailable()) {
-    log('Apro il player TikTok...');
+    log('Opening the TikTok player...');
     try {
       return await resolveGenericBrowser(`https://www.tiktok.com/embed/v2/${tiktokId}`, log);
     } catch (error) {
-      log(`Player TikTok non disponibile: ${error.message}`);
+      log(`TikTok player unavailable: ${error.message}`);
     }
   }
 
@@ -1203,7 +1244,7 @@ async function resolveAuto(rawUrl, onLog) {
     return await resolveGenericBrowser(target, log);
   } catch (error) {
     if (httpError) {
-      throw new Error(`${error.message} — percorso diretto: ${httpError.message}`);
+      throw new Error(`${error.message} — direct path: ${httpError.message}`);
     }
     throw error;
   }

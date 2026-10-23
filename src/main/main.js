@@ -15,11 +15,14 @@ const {
 
 const binaries = require('./binaries');
 const downloader = require('./downloader');
-const editor = require('./editor');
-const hardware = require('./hardware');
-const compressCore = require('./compress-core');
 const settings = require('./settings');
-const updater = require('./updater');
+
+// Editor, compressore e aggiornamento pesano all'avvio e non servono per il
+// primo paint: si caricano la prima volta che una funzione li usa davvero.
+const editor = () => require('./editor');
+const hardware = () => require('./hardware');
+const compressCore = () => require('./compress-core');
+const updater = () => require('./updater');
 
 let mainWindow = null;
 let currentExport = null;
@@ -27,6 +30,8 @@ let exporting = false;
 let currentCompress = null;
 let compressing = false;
 let gpuScanCache = null;
+let binariesProbed = false;
+let updaterStarted = false;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -34,12 +39,12 @@ if (!gotLock) {
 }
 
 function sanitizeName(value) {
-  const cleaned = String(value || 'Montaggio')
+  const cleaned = String(value || 'Timeline')
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/[. ]+$/g, '');
-  return cleaned.slice(0, 120) || 'Montaggio';
+  return cleaned.slice(0, 120) || 'Timeline';
 }
 
 function defaultDownloads() {
@@ -80,6 +85,16 @@ function createWindow() {
   Menu.setApplicationMenu(null);
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (binariesProbed) return;
+    binariesProbed = true;
+    // Le versioni dei tool si leggono dopo il primo paint: all'avvio servono
+    // solo i percorsi, cosi` la finestra compare subito.
+    binaries
+      .probeInBackground()
+      .then((tools) => broadcast('binaries:ready', tools))
+      .catch(() => {});
+  });
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -135,7 +150,7 @@ function shellReveal(target) {
 
 function registerIpc() {
   ipcMain.handle('app:defaults', () => {
-    const tools = binaries.getBinaries();
+    const tools = binaries.getBinariesFast();
     const saved = settings.get();
     return {
       downloads: saved.downloadsDir || defaultDownloads(),
@@ -165,7 +180,7 @@ function registerIpc() {
   ipcMain.handle('dialog:pickFolder', async (event, current) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(win, {
-      title: 'Scegli la cartella di output',
+      title: 'Choose the output folder',
       defaultPath: current && typeof current === 'string' ? current : defaultDownloads(),
       properties: ['openDirectory', 'createDirectory'],
     });
@@ -176,17 +191,17 @@ function registerIpc() {
   ipcMain.handle('dialog:pickMedia', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(win, {
-      title: 'Importa clip video o audio',
+      title: 'Import video or audio clips',
       properties: ['openFile', 'multiSelections'],
       filters: [
         {
-          name: 'Video e audio',
+          name: 'Video and audio',
           extensions: [
             'mp4', 'mkv', 'mov', 'webm', 'avi', 'm4v', 'mpeg', 'mpg', 'ts', 'flv',
             'mp3', 'm4a', 'wav', 'flac', 'ogg', 'opus', 'aac', 'wma',
           ],
         },
-        { name: 'Tutti i file', extensions: ['*'] },
+        { name: 'All files', extensions: ['*'] },
       ],
     });
     if (result.canceled) return [];
@@ -196,11 +211,11 @@ function registerIpc() {
   ipcMain.handle('dialog:pickAudio', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(win, {
-      title: 'Scegli una traccia musicale',
+      title: 'Choose a music track',
       properties: ['openFile'],
       filters: [
         { name: 'Audio', extensions: ['mp3', 'm4a', 'wav', 'flac', 'ogg', 'opus', 'aac', 'wma'] },
-        { name: 'Tutti i file', extensions: ['*'] },
+        { name: 'All files', extensions: ['*'] },
       ],
     });
     if (result.canceled || !result.filePaths.length) return null;
@@ -210,14 +225,14 @@ function registerIpc() {
   ipcMain.handle('dialog:pickCompressSource', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(win, {
-      title: 'Scegli il video da comprimere',
+      title: 'Choose the video to compress',
       properties: ['openFile'],
       filters: [
         {
           name: 'Video',
           extensions: ['mp4', 'mkv', 'mov', 'webm', 'avi', 'm4v', 'mpeg', 'mpg', 'ts', 'flv', 'wmv'],
         },
-        { name: 'Tutti i file', extensions: ['*'] },
+        { name: 'All files', extensions: ['*'] },
       ],
     });
     if (result.canceled || !result.filePaths.length) return null;
@@ -229,11 +244,11 @@ function registerIpc() {
     const container = ['mp4', 'mkv', 'webm'].includes(payload && payload.container)
       ? payload.container
       : 'mp4';
-    const extension = compressCore.containerExtension(container);
+    const extension = compressCore().containerExtension(container);
     const base = sanitizeName((payload && payload.sourceName) || 'video')
       .replace(/\.[a-z0-9]{2,5}$/i, '');
     const result = await dialog.showSaveDialog(win, {
-      title: 'Salva il video compresso',
+      title: 'Save the compressed video',
       defaultPath: path.join(
         settings.ensure('compressDir') || defaultDownloads(),
         `${base}-compresso.${extension}`,
@@ -253,6 +268,8 @@ function registerIpc() {
   ipcMain.handle('download:start', (_event, payload) => {
     return downloader.start(payload || {});
   });
+
+  ipcMain.handle('download:retry', (_event, id) => downloader.retry(String(id || '')));
 
   ipcMain.handle('download:cancel', (_event, id) => downloader.cancel(String(id || '')));
 
@@ -275,13 +292,13 @@ function registerIpc() {
   });
 
   ipcMain.handle('editor:probe', async (_event, filePath) => {
-    return editor.analyze(filePath);
+    return editor().analyze(filePath);
   });
 
   ipcMain.handle('editor:export', async (event, project) => {
-    if (exporting) throw new Error('Un\'esportazione è già in corso');
+    if (exporting) throw new Error('An export is already running');
     if (!project || !Array.isArray(project.clips) || !project.clips.length) {
-      throw new Error('Aggiungi almeno una clip al montaggio');
+      throw new Error('Add at least one clip to the timeline');
     }
 
     const format = project.format === 'm4a' ? 'm4a' : project.format === 'mkv' ? 'mkv' : 'mp4';
@@ -291,7 +308,7 @@ function registerIpc() {
     if (!outputPath) {
       const win = BrowserWindow.fromWebContents(event.sender);
       const result = await dialog.showSaveDialog(win, {
-        title: 'Esporta montaggio',
+        title: 'Export timeline',
         defaultPath: path.join(
           settings.ensure('editorDir') || defaultDownloads(),
           `${sanitizeName(project.name)}.${extension}`,
@@ -315,7 +332,7 @@ function registerIpc() {
 
     exporting = true;
     let lastSent = 0;
-    const promise = editor.exportProject(project, outputPath, (progress) => {
+    const promise = editor().exportProject(project, outputPath, (progress) => {
       const now = Date.now();
       if (now - lastSent < 120 && progress.progress < 1) return;
       lastSent = now;
@@ -327,7 +344,7 @@ function registerIpc() {
       const result = await promise;
       return { ok: true, ...result };
     } catch (error) {
-      if (String(error && error.message).includes('annullata')) {
+      if (String(error && error.message).toLowerCase().includes('cancelled')) {
         try {
           fs.unlinkSync(outputPath);
         } catch {
@@ -355,10 +372,10 @@ function registerIpc() {
   ipcMain.handle('editor:snapshot', async (_event, payload) => {
     const dataUrl = String((payload && payload.dataUrl) || '');
     const match = dataUrl.match(/^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/);
-    if (!match) throw new Error('Istantanea non valida');
+    if (!match) throw new Error('Invalid snapshot');
     const buffer = Buffer.from(match[2], 'base64');
-    if (!buffer.length) throw new Error('Istantanea vuota');
-    if (buffer.length > 40 * 1024 * 1024) throw new Error('Istantanea troppo grande');
+    if (!buffer.length) throw new Error('Empty snapshot');
+    if (buffer.length > 40 * 1024 * 1024) throw new Error('Snapshot is too large');
     const extension = match[1] === 'jpeg' ? 'jpg' : 'png';
     let baseDir = '';
     try {
@@ -369,7 +386,7 @@ function registerIpc() {
     if (!baseDir) baseDir = settings.ensure('editorDir') || defaultDownloads();
     const dir = path.join(baseDir, 'MoliDowloader');
     fs.mkdirSync(dir, { recursive: true });
-    const base = sanitizeName((payload && payload.name) || 'fotogramma') || 'fotogramma';
+    const base = sanitizeName((payload && payload.name) || 'frame') || 'frame';
     let target = path.join(dir, `${base}.${extension}`);
     let counter = 1;
     while (fs.existsSync(target)) {
@@ -380,25 +397,25 @@ function registerIpc() {
     return { ok: true, path: target, name: path.basename(target), size: buffer.length, dir };
   });
 
-  ipcMain.handle('compress:catalog', () => hardware.catalog());
+  ipcMain.handle('compress:catalog', () => hardware().catalog());
 
   ipcMain.handle('compress:scan', async (_event, force) => {
     if (gpuScanCache && !force) return gpuScanCache;
     const tools = binaries.getBinaries();
-    gpuScanCache = await hardware.scanSystem({ ffmpegPath: tools.ffmpeg.path });
+    gpuScanCache = await hardware().scanSystem({ ffmpegPath: tools.ffmpeg.path });
     return gpuScanCache;
   });
 
   ipcMain.handle('compress:probe', async (_event, filePath) => {
     const tools = binaries.getBinaries();
-    return compressCore.probeSource(tools.ffprobe.path, filePath);
+    return compressCore().probeSource(tools.ffprobe.path, filePath);
   });
 
   ipcMain.handle('compress:detectCrop', async (_event, payload) => {
     const tools = binaries.getBinaries();
-    if (!tools.ffmpeg.path) throw new Error('FFmpeg non trovato');
+    if (!tools.ffmpeg.path) throw new Error('FFmpeg not found');
     const data = payload || {};
-    return compressCore.detectCrop(tools.ffmpeg.path, String(data.filePath || ''), {
+    return compressCore().detectCrop(tools.ffmpeg.path, String(data.filePath || ''), {
       duration: Number(data.duration) || 0,
       width: Number(data.width) || 0,
       height: Number(data.height) || 0,
@@ -406,23 +423,23 @@ function registerIpc() {
   });
 
   ipcMain.handle('compress:start', async (event, payload) => {
-    if (compressing) throw new Error('Una compressione è già in corso');
+    if (compressing) throw new Error('A compression is already running');
     const sourcePath = payload && payload.sourcePath;
-    if (!sourcePath || typeof sourcePath !== 'string') throw new Error('Scegli un video da comprimere');
-    if (!fs.existsSync(sourcePath)) throw new Error('Il file selezionato non esiste più');
+    if (!sourcePath || typeof sourcePath !== 'string') throw new Error('Choose a video to compress');
+    if (!fs.existsSync(sourcePath)) throw new Error('The selected file no longer exists');
 
     const options = (payload && payload.options) || {};
     const container = ['mp4', 'mkv', 'webm'].includes(options.container)
       ? options.container
       : 'mp4';
-    const extension = compressCore.containerExtension(container);
+    const extension = compressCore().containerExtension(container);
     let outputPath = payload && payload.outputPath ? path.resolve(payload.outputPath) : null;
     const win = BrowserWindow.fromWebContents(event.sender);
 
     if (!outputPath) {
       const base = sanitizeName(path.basename(sourcePath)).replace(/\.[a-z0-9]{2,5}$/i, '');
       const result = await dialog.showSaveDialog(win, {
-        title: 'Salva il video compresso',
+        title: 'Save the compressed video',
         defaultPath: path.join(
           settings.get().compressDir || defaultDownloads(),
           `${base}-compresso.${extension}`,
@@ -442,13 +459,13 @@ function registerIpc() {
     const parsed = path.parse(outputPath);
     outputPath = path.join(parsed.dir, `${parsed.name}.${extension}`);
     if (path.resolve(outputPath) === path.resolve(sourcePath)) {
-      throw new Error('Il file di output deve essere diverso dal video originale');
+      throw new Error('The output file must be different from the source video');
     }
 
     const tools = binaries.getBinaries();
     compressing = true;
     let lastSent = 0;
-    const promise = compressCore.compressVideo({
+    const promise = compressCore().compressVideo({
       ffmpegPath: tools.ffmpeg.path,
       ffprobePath: tools.ffprobe.path,
       sourcePath,
@@ -467,7 +484,7 @@ function registerIpc() {
       const result = await promise;
       return { ok: true, ...result };
     } catch (error) {
-      if (String(error && error.message).includes('annullata')) {
+      if (String(error && error.message).toLowerCase().includes('cancelled')) {
         return { ok: false, canceled: true };
       }
       throw error;
@@ -488,7 +505,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('system:info', () => {
-    const tools = binaries.getBinaries();
+    const tools = binaries.getBinariesFast();
     const cpus = os.cpus();
     return {
       system: {
@@ -525,9 +542,9 @@ function registerIpc() {
     };
   });
 
-  ipcMain.handle('update:check', () => updater.check(true));
-  ipcMain.handle('update:state', () => updater.state());
-  ipcMain.handle('update:install', () => updater.install());
+  ipcMain.handle('update:check', () => updater().check(true));
+  ipcMain.handle('update:state', () => updater().state());
+  ipcMain.handle('update:install', () => updater().install());
 
   ipcMain.handle('deps:download', async (event, tool) => {
     const sender = event.sender;
@@ -543,6 +560,21 @@ function registerIpc() {
   });
 
   ipcMain.handle('shell:reveal', (_event, target) => shellReveal(target));
+
+  // Apre la pagina di accesso del sito nel browser predefinito: li` l'utente
+  // e` gia` loggato e i cookie restano disponibili ai download successivi.
+  ipcMain.handle('shell:openExternal', async (_event, target) => {
+    if (!target || typeof target !== 'string') return false;
+    let parsed = null;
+    try {
+      parsed = new URL(target);
+    } catch {
+      return false;
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    await shell.openExternal(parsed.toString());
+    return true;
+  });
 
   ipcMain.handle('shell:open', async (_event, target) => {
     if (!target || typeof target !== 'string') return false;
@@ -564,10 +596,15 @@ app.whenReady().then(() => {
     documentsDir = '';
   }
   settings.setBase(defaultDownloads(), documentsDir);
-  settings.ensureAll();
   registerIpc();
   createWindow();
-  updater.start(broadcast);
+  // Cartelle e controllo aggiornamenti arrivano dopo il primo paint: l'avvio
+  // deve solo mostrare la finestra.
+  setTimeout(() => settings.ensureAll(), 600);
+  setTimeout(() => {
+    updaterStarted = true;
+    updater().start(broadcast);
+  }, 1500);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -586,7 +623,13 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  updater.stop();
+  if (updaterStarted) {
+    try {
+      updater().stop();
+    } catch {
+      /* l'updater non e` mai stato caricato */
+    }
+  }
   if (currentExport) {
     try {
       currentExport.cancel();

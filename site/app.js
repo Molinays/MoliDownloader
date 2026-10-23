@@ -41,12 +41,12 @@ async function loadLatestRelease() {
     );
     const version = String(release.tag_name || '').replace(/^v/i, '');
 
-    setButton(setupBtn, setupCard, setup, 'Scarica per Windows');
-    setButton(null, portableBtn, portable, 'Scarica il portable');
+    setButton(setupBtn, setupCard, setup, 'Download for Windows');
+    setButton(null, portableBtn, portable, 'Download the portable');
 
     if (version) {
       if (releaseMeta) {
-        releaseMeta.textContent = `Versione ${version}${setup ? ` · ${mb(setup.size)}` : ''} · Windows 10/11 · 64-bit`;
+        releaseMeta.textContent = `Version ${version}${setup ? ` · ${mb(setup.size)}` : ''} · Windows 10/11 · 64-bit`;
       }
       if (setup && setupMeta) setupMeta.textContent = `${setup.name} · ${mb(setup.size)}`;
       if (portable && portableMeta) portableMeta.textContent = `${portable.name} · ${mb(portable.size)}`;
@@ -57,9 +57,9 @@ async function loadLatestRelease() {
     for (const node of [setupBtn, setupCard, portableBtn]) {
       if (node) node.href = RELEASES;
     }
-    if (releaseMeta) releaseMeta.textContent = 'Ultima versione su GitHub · Windows 10/11 · 64-bit';
-    if (setupMeta) setupMeta.textContent = 'MoliDowloader-Setup-<versione>.exe';
-    if (portableMeta) portableMeta.textContent = 'MoliDowloader-<versione>.exe';
+    if (releaseMeta) releaseMeta.textContent = 'Latest version on GitHub · Windows 10/11 · 64-bit';
+    if (setupMeta) setupMeta.textContent = 'MoliDowloader-Setup-<version>.exe';
+    if (portableMeta) portableMeta.textContent = 'MoliDowloader-<version>.exe';
   }
 }
 

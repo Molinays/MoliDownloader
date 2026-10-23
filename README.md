@@ -1,4 +1,4 @@
-# MoliDowloader 3.1.1
+# MoliDowloader 3.4.0
 
 App desktop **Electron** che unisce un downloader universale, un piccolo editor video/audio e un compressore in stile HandBrake, tutti basati su **FFmpeg**.
 
@@ -7,7 +7,11 @@ App desktop **Electron** che unisce un downloader universale, un piccolo editor 
 ## Funzioni
 
 ### Download
+- **Easy mode**: un link, Video o Audio, cartella e un solo pulsante; la modalità Advanced resta a un clic. Il link incollato resta lo stesso passando da una modalità all'altra, con sfondo animato e alone nella schermata semplice.
 - Supporto a tutti i siti gestiti da **yt-dlp**: YouTube, TikTok, Instagram, Facebook, X/Twitter, Vimeo, Twitch, SoundCloud e oltre 1000 altri.
+- **Riconoscimento delle playlist**: YouTube Music, Spotify, SoundCloud e i link `playlist` vengono riconosciuti sotto il campo e in coda, con l'etichetta *Playlist detected*, il nome del gruppo e il conteggio degli elementi. Un link che è una playlist viene scaricato per intero anche con il toggle disattivato; un link a una singola traccia resta una scheda singola.
+- **Errori in tema**: ogni errore di yt-dlp, FFmpeg o del resolver diventa un popup con codice (MD-101 accesso, MD-202 contenuto rimosso, MD-303 solo audio, MD-401 token scaduto...), spiegazione, suggerimento e pulsanti per rimediare (accedi, riprova, aggiorna yt-dlp, apri il log).
+- **Accesso richiesto**: se un contenuto ha bisogno di un account, il popup ricorda di collegarsi e offre il pulsante *Sign in* che apre la pagina di accesso del sito; con i cookie del browser il download riparte senza copiare nulla a mano.
 - YouTube funziona senza installare Deno o Node: le sfide JavaScript vengono risolte con il runtime Node incorporato in Electron.
 - Più link contemporaneamente (uno per riga), con coda e massimo 2 download in parallelo.
 - Video: Best, 4K, 1440p, 1080p, 720p, 480p, 360p con merge automatico in MP4.
@@ -16,6 +20,8 @@ App desktop **Electron** che unisce un downloader universale, un piccolo editor 
 - Cookie da Chrome/Firefox/Edge/Brave/Opera per contenuti che richiedono login (Instagram, TikTok privati, ecc.).
 - Link dei siti con player protetto (StreamingCommunity e mirror): il resolver legge la pagina del sito, segue l'iframe fino al player VixCloud e recupera la playlist HLS con token ed expires, poi la passa a yt-dlp. Accetta anche il link del player o della playlist incollato direttamente. Se il sito rifiuta le richieste dirette, il player viene caricato in una finestra Electron nascosta (JavaScript e cookie veri) e il flusso viene letto da lì.
 - Log in tempo reale, annullamento, apertura cartella e passaggio diretto all'editor.
+- **Spotify**: link `open.spotify.com` anche con prefisso di lingua (`/it/`, `/intl-it/`) o parametro `?si=`. Playlist e album vengono espansi nell'embed pubblico e ogni brano viene cercato su YouTube con artista e titolo; una traccia singola non viene più mostrata come playlist da 1 elemento.
+- **Twitch**: per le VOD servite con la sola traccia audio, l'app chiede il token pubblico alla API web, legge il manifest usher e usa la rendition *chunked* dello stesso CDN (video e audio insieme) al posto del solo audio.
 - Aggiornamento di yt-dlp integrato nell'app.
 
 ### Editor
@@ -121,6 +127,7 @@ Il repository GitHub pubblico è **release-only**: sul branch `main` c'è solo i
 src/
   main/        processo principale Electron (finestra, IPC, download, editor, compressione)
   renderer/    interfaccia (index.html, app.js, style.css)
+  shared/      riconoscimento link ed errori, usati da main e renderer
 scripts/       utility e test offline (npm test)
 resources/     binari inclusi nel pacchetto (ytd.exe)
 build/         icona dell'applicazione
@@ -132,8 +139,12 @@ release/       artefatti di build (ignorata da git)
 | `src/renderer/index.html`, `app.js`, `style.css` | Interfaccia renderer (download + editor + comprimi + info) |
 | `src/main/main.js` | Finestra, sicurezza e handler IPC |
 | `src/main/preload.js` | Bridge `contextBridge` usato dal renderer |
-| `src/main/downloader.js` | Coda yt-dlp, parsing progresso, file finali e annullamento |
+| `src/main/downloader.js` | Coda yt-dlp, parsing progresso, playlist, file finali e annullamento |
 | `src/main/resolver.js` | Risoluzione dei link con player protetto (StreamingCommunity, VixCloud) verso la playlist scaricabile |
+| `src/main/twitch.js` | Token pubblico, manifest usher e rendition chunked delle VOD Twitch |
+| `src/main/spotify.js` | Espansione di tracce, album e playlist Spotify tramite embed pubblico |
+| `src/shared/links.js` | Riconoscimento di servizio, playlist, brano e pagina di accesso |
+| `src/shared/errors.js` | Codici e messaggi in tema per gli errori di download |
 | `src/main/settings.js` | Cartelle di output predefinite, personalizzate dall'utente e ripristinabili |
 | `src/main/media-core.js` | Probe, thumbnail, waveform, costruzione filtri ed export FFmpeg |
 | `src/main/editor.js` | Cache media e servizio export per Electron |

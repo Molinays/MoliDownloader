@@ -3,10 +3,27 @@
 
 const api = window.moli;
 
+const MODE_KEY = 'moli.mode';
+// I link incollati restano gli stessi passando da Easy ad Advanced.
+const LINKS_KEY = 'moli.links';
+
 const state = {
   view: 'download',
+  mode: (() => {
+    try {
+      return localStorage.getItem(MODE_KEY) === 'advanced' ? 'advanced' : 'easy';
+    } catch {
+      return 'easy';
+    }
+  })(),
   currentTab: 'video',
+  links: '',
+  linkTimer: null,
+  errorInfo: null,
+  errorJobId: '',
+  errorShown: new Set(),
   jobs: new Map(),
+  collapsedPlaylists: new Set(),
   clips: [],
   selectedId: null,
   music: null,
@@ -94,7 +111,7 @@ function fmtUptime(seconds) {
   const days = Math.floor(value / 86400);
   const hours = Math.floor((value % 86400) / 3600);
   const minutes = Math.floor((value % 3600) / 60);
-  if (days > 0) return `${days}g ${hours}h ${minutes}m`;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
 }
@@ -113,7 +130,7 @@ function fmtBytes(bytes) {
 }
 
 function errorMessage(error) {
-  return String((error && error.message) || error || 'Errore')
+  return String((error && error.message) || error || 'Error')
     .replace(/^Error invoking remote method '[^']+':\s*/i, '')
     .replace(/^Error:\s*/i, '')
     .trim();
@@ -135,16 +152,214 @@ function toast(message, type = 'ok') {
   }, 4200);
 }
 
+/* ============================ LINK E MESSAGGI ============================ */
+
+/** Stesso riconoscimento dei link usato dal processo principale. */
+function linkInfoOf(rawUrl) {
+  if (!rawUrl) return null;
+  try {
+    if (api && typeof api.linkInfo === 'function') return api.linkInfo(rawUrl);
+  } catch {
+    /* senza preload restano i messaggi generici */
+  }
+  return null;
+}
+
+/** Un errore grezzo diventa il messaggio in tema dell'app. */
+function explainError(raw, url = '') {
+  try {
+    if (api && typeof api.explainError === 'function') return api.explainError(String(raw || ''), url);
+  } catch {
+    /* preload non disponibile */
+  }
+  const value = String(raw || 'Download failed.');
+  return {
+    code: 'MD-900',
+    kind: 'unknown',
+    icon: 'cross',
+    title: 'Download failed',
+    message: value,
+    hint: 'Open the log to see what the site answered.',
+    action: 'none',
+    serviceLabel: '',
+    loginUrl: '',
+    raw: value,
+  };
+}
+
+function firstLink(value) {
+  const list = String(value || '')
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return list[0] || '';
+}
+
+/** Ricorda il testo incollato e lo copia nell'altra modalita`. */
+function applyLinkText(value, sourceId) {
+  const shared = { ezUrl: 'urlInput', urlInput: 'ezUrl' }[sourceId];
+  state.links = value;
+  if (shared && $(shared) && $(shared).value !== value) $(shared).value = value;
+  renderLinkInfo();
+}
+
+function setLinkValue(value) {
+  applyLinkText(String(value || ''), '');
+  for (const id of ['ezUrl', 'urlInput']) {
+    if ($(id)) $(id).value = value;
+  }
+  try {
+    localStorage.setItem(LINKS_KEY, value);
+  } catch {
+    /* storage bloccato */
+  }
+}
+
+function onLinkInput(id) {
+  const value = $(id).value;
+  applyLinkText(value, id);
+  clearTimeout(state.linkTimer);
+  state.linkTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(LINKS_KEY, value);
+    } catch {
+      /* storage bloccato */
+    }
+  }, 400);
+}
+
+function restoreLinks() {
+  let value = '';
+  try {
+    value = localStorage.getItem(LINKS_KEY) || '';
+  } catch {
+    value = '';
+  }
+  state.links = value;
+  for (const id of ['ezUrl', 'urlInput']) {
+    if ($(id)) $(id).value = value;
+  }
+  renderLinkInfo();
+}
+
+/** Targhetta sotto il campo: "Playlist detected", brano singolo, live... */
+function linkBadge(info) {
+  if (!info || !info.host) return '';
+  const service = info.serviceLabel || info.host;
+  if (info.isPlaylist) {
+    return `<span class="link-tag playlist">Playlist detected</span><span class="link-info-text">${esc(service)} · every track will be saved</span>`;
+  }
+  if (info.kind === 'track' && info.service === 'spotify') {
+    return `<span class="link-tag track">Single track</span><span class="link-info-text">${esc(service)} · found on YouTube and saved as audio</span>`;
+  }
+  if (info.hasPlaylist) {
+    return `<span class="link-tag">Playlist link</span><span class="link-info-text">${esc(service)} · one video: turn on "Whole playlist" to save the list</span>`;
+  }
+  if (info.kind === 'live') {
+    return `<span class="link-tag live">Live</span><span class="link-info-text">${esc(service)} · the recording starts from the current moment</span>`;
+  }
+  return '';
+}
+
+function renderLinkInfo() {
+  const html = linkBadge(linkInfoOf(firstLink(state.links)));
+  for (const id of ['ezLinkInfo', 'linkInfo']) {
+    const element = $(id);
+    if (!element) continue;
+    element.innerHTML = html;
+    element.hidden = !html;
+  }
+}
+
+/* ============================ POPUP DEGLI ERRORI ============================ */
+
+function showError(info, options = {}) {
+  if (!info || !$('errorModal')) return;
+  state.errorInfo = info;
+  state.errorJobId = options.jobId || '';
+  const icon = $('errorIcon');
+  if (icon) {
+    icon.textContent = '!';
+    icon.className = `error-icon ${info.kind || 'unknown'}`;
+  }
+  $('errorCode').textContent = info.code || 'MD-900';
+  $('errorTitle').textContent = info.title || 'Download failed';
+  $('errorMessage').textContent = info.message || '';
+  $('errorHint').textContent = info.hint || '';
+  const raw = $('errorRaw');
+  if (raw) raw.textContent = info.raw || '';
+  const canLogin = info.action === 'login' && Boolean(info.loginUrl);
+  const loginButton = $('btnErrorLogin');
+  loginButton.hidden = !canLogin;
+  if (canLogin) loginButton.textContent = `Sign in to ${info.serviceLabel || 'the site'}`;
+  const canRetry = Boolean(state.errorJobId) || info.action === 'retry';
+  $('btnErrorRetry').hidden = !canRetry;
+  $('btnErrorUpdate').hidden = info.action !== 'update';
+  $('btnErrorLog').hidden = !state.errorJobId;
+  $('errorModal').classList.add('open');
+  $('errorModal').setAttribute('aria-hidden', 'false');
+}
+
+function closeError() {
+  const modal = $('errorModal');
+  if (!modal) return;
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+  state.errorInfo = null;
+  state.errorJobId = '';
+}
+
+async function signInFromError() {
+  const info = state.errorInfo;
+  if (!info || !info.loginUrl) return;
+  try {
+    await api.openExternal(info.loginUrl);
+    toast('Sign in in your browser, then press Retry');
+  } catch (error) {
+    toast(errorMessage(error), 'err');
+  }
+}
+
+async function retryJob(id) {
+  if (!id) return;
+  closeError();
+  try {
+    const jobs = await api.retryDownload(id);
+    toast(`${jobs.length} ${jobs.length === 1 ? 'download' : 'downloads'} queued`);
+    await refreshJobs();
+  } catch (error) {
+    toast(errorMessage(error), 'err');
+  }
+}
+
+function retryFromError() {
+  if (state.errorJobId) retryJob(state.errorJobId);
+  else startDownload(state.mode === 'easy' ? 'ez' : 'advanced');
+}
+
 /* ============================ BOOTSTRAP ============================ */
 
 document.addEventListener('DOMContentLoaded', init);
 
+const bootAt = Date.now();
+
+function finishBoot() {
+  const wait = Math.max(0, 150 - (Date.now() - bootAt));
+  setTimeout(() => {
+    document.body.classList.add('loaded');
+    const screen = $('bootScreen');
+    if (screen) setTimeout(() => screen.remove(), 240);
+  }, wait);
+}
+
 async function init() {
-  createParticles();
+  restoreLinks();
   bindEvents();
+  applyMode(state.mode, { silent: true });
 
   if (!api) {
-    toast('API Electron non disponibile. Avvia con "npm start".', 'err');
+    toast('Electron API not available. Start the app with "npm start".', 'err');
+    finishBoot();
     return;
   }
 
@@ -166,6 +381,7 @@ async function init() {
     syncDownloadPrefs();
     renderDirs();
     renderEngineInfo(defaults);
+    renderEzPanel();
   } catch (error) {
     $('statusDot').classList.add('error');
     toast(errorMessage(error), 'err');
@@ -177,13 +393,29 @@ async function init() {
   api.on('compress:progress', onCompressProgress);
   api.on('deps:progress', onDepsProgress);
   api.on('update:status', onUpdateStatus);
+  api.on('binaries:ready', onBinariesReady);
   api.updateState().then(onUpdateStatus).catch(() => {});
 
-  await loadCompressCatalog();
-  refreshInfo();
-  await refreshJobs();
-  renderEditor();
-  selectTool('trim');
+  finishBoot();
+
+  // Coda, editor e catalogo non servono per il primo paint: partono subito
+  // dopo la schermata di avvio, cosi` la finestra e` utilizzabile prima.
+  setTimeout(() => {
+    refreshJobs();
+    renderEditor();
+    selectTool('trim');
+  }, 0);
+  setTimeout(() => {
+    createParticles();
+    loadCompressCatalog();
+  }, 900);
+}
+
+function onBinariesReady(tools) {
+  if (!tools) return;
+  state.defaults = { ...(state.defaults || {}), binaries: tools };
+  renderEngineInfo(state.defaults);
+  if (state.info) state.info.binaries = tools;
 }
 
 function createParticles() {
@@ -212,7 +444,47 @@ function bindEvents() {
     button.addEventListener('click', () => setTab(button.dataset.tab));
   });
 
-  $('dlBtn').addEventListener('click', startDownload);
+  $('dlBtn').addEventListener('click', () => startDownload('advanced'));
+  $('modeToggle').addEventListener('click', toggleMode);
+  $('ezDownloadBtn').addEventListener('click', () => startDownload('ez'));
+
+  // Un solo testo condiviso: incollare in Easy lo mostra anche in Advanced.
+  for (const id of ['ezUrl', 'urlInput']) {
+    if ($(id)) $(id).addEventListener('input', () => onLinkInput(id));
+  }
+
+  $('btnCloseError').addEventListener('click', closeError);
+  $('btnErrorDismiss').addEventListener('click', closeError);
+  $('btnErrorLogin').addEventListener('click', signInFromError);
+  $('btnErrorRetry').addEventListener('click', retryFromError);
+  $('btnErrorUpdate').addEventListener('click', () => {
+    closeError();
+    updateYtdlp();
+  });
+  $('btnErrorLog').addEventListener('click', () => {
+    const id = state.errorJobId;
+    closeError();
+    if (id) openLog(id);
+  });
+  $('errorModal').addEventListener('click', (event) => {
+    if (event.target === $('errorModal')) closeError();
+  });
+  $('ezChangeFolder').addEventListener('click', () => pickFolder('video'));
+  $('ezQuality').addEventListener('change', () => {
+    $('quality').value = $('ezQuality').value;
+  });
+  document.querySelectorAll('.ez-choice').forEach((button) => {
+    button.addEventListener('click', () => setEzFormat(button.dataset.ezFormat));
+  });
+  $('ezUrl').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      startDownload('ez');
+    }
+  });
+  $('quality').addEventListener('change', () => {
+    if ($('ezQuality')) $('ezQuality').value = $('quality').value;
+  });
   $('btnClearDone').addEventListener('click', clearDone);
   $('btnUpdateYtdlp').addEventListener('click', updateYtdlp);
   $('btnOpenDownloads').addEventListener('click', () => {
@@ -337,7 +609,7 @@ function bindEvents() {
     stopMusicPreview();
     state.music = null;
     renderMusic();
-    toast('Traccia musicale rimossa');
+    toast('Music track removed');
   });
 
   $('exportFormat').addEventListener('change', syncExportMode);
@@ -349,11 +621,14 @@ function bindEvents() {
   video.addEventListener('error', () => {
     if (!selectedClip()) return;
     $('previewBadge').hidden = false;
-    $('previewBadge').textContent = 'ANTEPRIMA NON DISPONIBILE';
+    $('previewBadge').textContent = 'PREVIEW NOT AVAILABLE';
   });
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeLog();
+    if (event.key === 'Escape') {
+      closeError();
+      closeLog();
+    }
     if (state.view !== 'editor') return;
     const tag = (document.activeElement && document.activeElement.tagName) || '';
     const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag);
@@ -458,13 +733,13 @@ function bindEvents() {
     }
     const text = event.dataTransfer ? event.dataTransfer.getData('text') : '';
     if (text && /^https?:\/\//i.test(text.trim())) {
-      $('urlInput').value = text.trim();
+      setLinkValue(text.trim());
       switchView('download');
       return;
     }
     // Riordino di una clip o drag interno: nessun avviso.
     if (dragClipId || !external) return;
-    toast('File non riconosciuto dal trascinamento: usa “+ Clip” oppure scegli il file', 'err');
+    toast('Unsupported dropped file: use "+ Clip" or choose the file manually', 'err');
   });
 }
 
@@ -567,6 +842,57 @@ function setTab(tab) {
   $('tabAudio').className = state.currentTab === 'audio' ? 'tab active' : 'tab';
   $('videoSettings').style.display = state.currentTab === 'video' ? '' : 'none';
   $('audioSettings').style.display = state.currentTab === 'audio' ? '' : 'none';
+  renderEzPanel();
+}
+
+/* ============================= EASY MODE ============================= */
+
+function applyMode(mode, options = {}) {
+  state.mode = mode === 'advanced' ? 'advanced' : 'easy';
+  const easy = state.mode === 'easy';
+  document.body.classList.toggle('ez-mode', easy);
+  const toggle = $('modeToggle');
+  if (toggle) {
+    toggle.textContent = easy ? 'Advanced mode' : 'Easy mode';
+    toggle.title = easy ? 'Show every setting' : 'Switch to the simple screen';
+  }
+  if (easy && state.view !== 'download') switchView('download');
+  if (!options.silent) {
+    try {
+      localStorage.setItem(MODE_KEY, state.mode);
+    } catch {
+      /* il browser interno potrebbe bloccare lo storage */
+    }
+  }
+  renderEzPanel();
+  renderLinkInfo();
+}
+
+function toggleMode() {
+  applyMode(state.mode === 'easy' ? 'advanced' : 'easy');
+}
+
+function setEzFormat(format) {
+  setTab(format === 'audio' ? 'audio' : 'video');
+  if (format === 'video' && $('ezQuality')) $('quality').value = $('ezQuality').value;
+}
+
+function renderEzPanel() {
+  if (!state.mode) return;
+  const easy = state.mode === 'easy';
+  if (!easy) return;
+  const format = state.currentTab === 'audio' ? 'audio' : 'video';
+  document.querySelectorAll('.ez-choice').forEach((button) => {
+    button.classList.toggle('active', button.dataset.ezFormat === format);
+  });
+  if ($('ezQuality')) {
+    $('ezQuality').value = $('quality').value;
+  }
+  if ($('ezQualityRow')) $('ezQualityRow').style.display = format === 'audio' ? 'none' : '';
+  if ($('ezFolderPath')) {
+    $('ezFolderPath').textContent = state.settings.downloadsDir || state.downloadsDir || 'Downloads';
+    $('ezFolderPath').title = $('ezFolderPath').textContent;
+  }
 }
 
 function renderEngineInfo(defaults) {
@@ -575,20 +901,20 @@ function renderEngineInfo(defaults) {
   const ffmpeg = binaries.ffmpeg || {};
 
   const ytdlpLabel = $('ytdlpVersion');
-  ytdlpLabel.textContent = ytdlp.version || 'non trovato';
+  ytdlpLabel.textContent = ytdlp.version || (ytdlp.path ? 'ready' : 'not found');
   ytdlpLabel.classList.toggle('bad', !ytdlp.path);
 
   const fullFfmpegVersion = String(ffmpeg.version || '');
   const ffmpegVersion = (fullFfmpegVersion.match(/ffmpeg version (\d+(?:\.\d+)*)/i) || [])[1];
   const ffmpegLabel = $('ffmpegVersion');
-  ffmpegLabel.textContent = ffmpegVersion || fullFfmpegVersion || 'non trovato';
+  ffmpegLabel.textContent = ffmpegVersion || fullFfmpegVersion || (ffmpeg.path ? 'ready' : 'not found');
   ffmpegLabel.title = fullFfmpegVersion;
   ffmpegLabel.classList.toggle('bad', !ffmpeg.path);
 
   const dot = $('statusDot');
   const ready = Boolean(ytdlp.path && ffmpeg.path);
   dot.classList.toggle('error', !ready);
-  dot.title = ready ? 'Motori locali pronti' : 'yt-dlp o FFmpeg non trovati';
+  dot.title = ready ? 'Local engines ready' : 'yt-dlp or FFmpeg not found';
 }
 
 /* ============================ DOWNLOADER ============================ */
@@ -622,9 +948,10 @@ function renderDirs() {
   for (const [id, value, fallback] of rows) {
     const element = $(id);
     if (!element) continue;
-    if (!value) element.textContent = 'Predefinita';
-    else element.textContent = value === fallback ? `${value} (predefinita)` : value;
+    if (!value) element.textContent = 'Default';
+    else element.textContent = value === fallback ? `${value} (default)` : value;
   }
+  renderEzPanel();
 }
 
 async function persistFolderInput(which) {
@@ -680,13 +1007,13 @@ async function saveFolder(key, value) {
 async function applyFolder(which, folder) {
   const key = FOLDER_TARGETS[which];
   if (!key) return;
-  if (await saveFolder(key, folder)) toast('Cartella aggiornata');
+  if (await saveFolder(key, folder)) toast('Folder updated');
 }
 
 async function resetFolder(which) {
   const key = FOLDER_TARGETS[which];
   if (!key) return;
-  if (await saveFolder(key, '')) toast('Cartella predefinita ripristinata');
+  if (await saveFolder(key, '')) toast('Default folder restored');
 }
 
 function syncDownloadPrefs() {
@@ -738,33 +1065,46 @@ function collectSettings() {
   };
 }
 
-async function startDownload() {
-  const raw = $('urlInput').value.trim();
+async function startDownload(source = 'advanced') {
+  const easy = source === 'ez';
+  const input = easy ? $('ezUrl') : $('urlInput');
+  const raw = input.value.trim();
   if (!raw) {
-    toast('Inserisci almeno un link', 'err');
+    toast('Paste a link first', 'err');
     return;
   }
 
   const urls = raw.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
   if (!urls.length) {
-    toast('Inserisci almeno un link valido', 'err');
+    toast('Enter at least one valid link', 'err');
     return;
   }
 
-  const button = $('dlBtn');
+  if (easy) {
+    $('quality').value = $('ezQuality').value;
+    setTab(state.currentTab);
+  }
+
+  const button = easy ? $('ezDownloadBtn') : $('dlBtn');
+  const originalLabel = easy ? 'Download' : 'Download';
   button.disabled = true;
-  button.textContent = 'Avvio...';
+  button.textContent = 'Starting...';
 
   try {
     const jobs = await api.startDownloads({ urls, settings: collectSettings() });
-    $('urlInput').value = '';
-    toast(`${jobs.length} download in coda`);
+    setLinkValue('');
+    toast(`${jobs.length} ${jobs.length === 1 ? 'download' : 'downloads'} queued`);
     await refreshJobs();
   } catch (error) {
-    toast(errorMessage(error), 'err');
+    const message = errorMessage(error);
+    if (/paste a link|at least one valid link|maximum 20 links/i.test(message)) {
+      toast(message, 'err');
+    } else {
+      showError(explainError(message, urls[0]));
+    }
   } finally {
     button.disabled = false;
-    button.textContent = 'Scarica';
+    button.textContent = originalLabel;
   }
 }
 
@@ -775,16 +1115,17 @@ function onJobUpdate(job) {
 
   if (previous && previous.status !== job.status) {
     if (job.status === 'done') {
-      toast(`Completato: ${job.title || shortenUrl(job.url)}`);
+      toast(`Completed: ${job.title || shortenUrl(job.url)}`);
     } else if (job.status === 'error') {
-      const message = errorMessage(job.error || 'Download fallito');
-      const unsupported = /unsupported url|no suitable extractor|is not a valid url|no video formats found/i.test(message);
-      toast(
-        unsupported
-          ? `${message} — Ho già provato i cookie del browser e la ricerca del flusso nella pagina. Aggiorna yt-dlp dalla scheda Info.`
-          : message,
-        'err',
-      );
+      const info = job.errorInfo || explainError(job.error || 'Download failed', job.url);
+      // Una playlist puo` far fallire molti brani: il popup si apre una volta
+      // sola e le altre schede restano con il messaggio in linea.
+      if (!state.errorShown.has(job.id) && !$('errorModal').classList.contains('open')) {
+        state.errorShown.add(job.id);
+        showError(info, { jobId: job.id });
+      } else {
+        toast(info.title, 'err');
+      }
     }
   }
 
@@ -805,12 +1146,63 @@ async function refreshJobs() {
 
 function jobStatusLabel(status) {
   return {
-    queued: 'in coda',
+    queued: 'queued',
     running: 'download',
-    done: 'completato',
-    error: 'errore',
-    cancelled: 'annullato',
+    done: 'completed',
+    error: 'error',
+    cancelled: 'cancelled',
   }[status] || status;
+}
+
+function jobCardHtml(job, compact = false) {
+  const status = job.status || 'queued';
+  const active = status === 'queued' || status === 'running';
+  const percent = clamp(Number(job.progress) || 0, 0, 100);
+  const title = job.title || shortenUrl(job.url);
+  const meta = [];
+  if (job.playlist && job.linkKind === 'playlist') meta.push(`Playlist detected${job.playlistTotal ? ` · ${job.playlistTotal} items` : ''}`);
+  if (job.size) meta.push(esc(job.size));
+  if (job.speed) meta.push(esc(job.speed));
+  if (job.eta) meta.push(`ETA ${esc(job.eta)}`);
+  meta.push(`${percent.toFixed(percent < 10 ? 1 : 0)}%`);
+  if (job.note) meta.push(esc(job.note));
+
+  const files = (job.files || []).map((file) => `
+      <div class="job-file">
+        <span class="job-file-name" title="${esc(file.path)}">${esc(file.name)}</span>
+        <span class="job-file-size">${fmtBytes(file.size)}</span>
+        <button class="btn-sm" data-action="editor" data-path="${esc(file.path)}">Editor</button>
+        <button class="btn-sm" data-action="reveal" data-path="${esc(file.path)}" title="Show in folder">Folder</button>
+      </div>`).join('');
+
+  const info = job.errorInfo;
+  const errorBox = info
+    ? `<div class="job-error">
+        <span class="job-error-code">${esc(info.code)}</span>
+        <strong>${esc(info.title)}</strong>
+        <p>${esc(info.hint || info.message)}</p>
+        <button class="btn-sm" data-action="explain" data-id="${esc(job.id)}">Details</button>
+      </div>`
+    : job.error
+      ? `<div class="job-error">${esc(job.error)}</div>`
+      : '';
+
+    return `<div class="job-card ${status}${compact ? ' job-card-child' : ''}">
+      <div class="job-header">
+        <span class="job-url" title="${esc(job.url)}">${esc(title)}</span>
+        ${job.playlist && job.linkKind === 'playlist' ? '<span class="job-group-tag">Playlist</span>' : ''}
+        <span class="job-status ${status}">${jobStatusLabel(status)}</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${percent}%"></div></div>
+      <div class="job-meta">${meta.join(' · ')}</div>
+      ${errorBox}
+      ${files ? `<div class="job-files">${files}</div>` : ''}
+      <div class="job-actions">
+        ${active ? `<button class="btn-sm btn-cancel" data-action="cancel" data-id="${esc(job.id)}">× Cancel</button>` : ''}
+        <button class="btn-sm" data-action="log" data-id="${esc(job.id)}">Log</button>
+        <button class="btn-sm" data-action="reveal-job" data-id="${esc(job.id)}">Folder</button>
+      </div>
+    </div>`;
 }
 
 function renderJobs() {
@@ -818,46 +1210,50 @@ function renderJobs() {
   const jobs = Array.from(state.jobs.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
   if (!jobs.length) {
-    container.innerHTML = '<div class="empty-state">Nessun download ancora</div>';
+    container.innerHTML = '<div class="empty-state">No downloads yet</div>';
     return;
   }
 
-  container.innerHTML = jobs.map((job) => {
-    const status = job.status || 'queued';
-    const active = status === 'queued' || status === 'running';
-    const percent = clamp(Number(job.progress) || 0, 0, 100);
-    const title = job.title || shortenUrl(job.url);
-    const meta = [];
-    if (job.size) meta.push(esc(job.size));
-    if (job.speed) meta.push(esc(job.speed));
-    if (job.eta) meta.push(`ETA ${esc(job.eta)}`);
-    meta.push(`${percent.toFixed(percent < 10 ? 1 : 0)}%`);
-    if (job.note) meta.push(esc(job.note));
+  const singles = [];
+  const groups = new Map();
+  for (const job of jobs) {
+    // Le playlist dei link vengono scaricate da yt-dlp in un solo job: la
+    // scheda resta singola con l'etichetta e il conteggio degli elementi.
+    if (!job.playlist || job.playlistKind === 'link') {
+      singles.push(job);
+      continue;
+    }
+    if (!groups.has(job.playlist)) groups.set(job.playlist, []);
+    groups.get(job.playlist).push(job);
+  }
 
-    const files = (job.files || []).map((file) => `
-      <div class="job-file">
-        <span class="job-file-name" title="${esc(file.path)}">${esc(file.name)}</span>
-        <span class="job-file-size">${fmtBytes(file.size)}</span>
-        <button class="btn-sm" data-action="editor" data-path="${esc(file.path)}">Editor</button>
-        <button class="btn-sm" data-action="reveal" data-path="${esc(file.path)}" title="Mostra nella cartella">Cartella</button>
-      </div>`).join('');
+  const blocks = singles.map((job) => ({ at: job.createdAt || 0, html: jobCardHtml(job) }));
+  for (const [name, list] of groups) {
+    const done = list.filter((job) => job.status === 'done').length;
+    const failed = list.some((job) => job.status === 'error');
+    const running = list.some((job) => job.status === 'running');
+    const percent = list.reduce((sum, job) => sum + clamp(Number(job.progress) || 0, 0, 100), 0) / list.length;
+    const collapsed = state.collapsedPlaylists.has(name);
+    const status = done === list.length ? 'done' : failed && !running ? 'error' : running ? 'running' : 'queued';
+    const at = Math.max(...list.map((job) => job.createdAt || 0));
+    blocks.push({
+      at,
+      html: `<div class="job-group">
+        <button class="job-group-head" type="button" data-action="toggle-group" data-group="${esc(name)}" aria-expanded="${collapsed ? 'false' : 'true'}">
+          <span class="job-group-caret">${collapsed ? '▸' : '▾'}</span>
+          <span class="job-group-title" title="${esc(name)}">${esc(name)}</span>
+          <span class="job-group-tag">${list[0] && list[0].playlistKind === 'album' ? 'Album' : 'Playlist'}</span>
+          <span class="job-group-count">${done}/${list.length}</span>
+          <span class="job-status ${status}">${jobStatusLabel(status)}</span>
+        </button>
+        <div class="progress-bar"><div class="progress-fill" style="width:${percent}%"></div></div>
+        <div class="job-group-body" ${collapsed ? 'hidden' : ''}>${list.map((job) => jobCardHtml(job, true)).join('')}</div>
+      </div>`,
+    });
+  }
 
-    return `<div class="job-card ${status}">
-      <div class="job-header">
-        <span class="job-url" title="${esc(job.url)}">${esc(title)}</span>
-        <span class="job-status ${status}">${jobStatusLabel(status)}</span>
-      </div>
-      <div class="progress-bar"><div class="progress-fill" style="width:${percent}%"></div></div>
-      <div class="job-meta">${meta.join(' · ')}</div>
-      ${job.error ? `<div class="job-error">${esc(job.error)}</div>` : ''}
-      ${files ? `<div class="job-files">${files}</div>` : ''}
-      <div class="job-actions">
-        ${active ? `<button class="btn-sm btn-cancel" data-action="cancel" data-id="${esc(job.id)}">× Annulla</button>` : ''}
-        <button class="btn-sm" data-action="log" data-id="${esc(job.id)}">Log</button>
-        <button class="btn-sm" data-action="reveal-job" data-id="${esc(job.id)}">Cartella</button>
-      </div>
-    </div>`;
-  }).join('');
+  blocks.sort((a, b) => b.at - a.at);
+  container.innerHTML = blocks.map((block) => block.html).join('');
 }
 
 function onJobsClick(event) {
@@ -869,11 +1265,19 @@ function onJobsClick(event) {
     cancelJob(button.dataset.id);
   } else if (action === 'log') {
     openLog(button.dataset.id);
+  } else if (action === 'explain') {
+    const job = state.jobs.get(button.dataset.id);
+    if (job) showError(job.errorInfo || explainError(job.error || 'Download failed', job.url), { jobId: job.id });
   } else if (action === 'editor') {
     switchView('editor');
     addPathsToEditor([button.dataset.path]);
   } else if (action === 'reveal') {
     api.reveal(button.dataset.path);
+  } else if (action === 'toggle-group') {
+    const name = button.dataset.group || '';
+    if (state.collapsedPlaylists.has(name)) state.collapsedPlaylists.delete(name);
+    else state.collapsedPlaylists.add(name);
+    renderJobs();
   } else if (action === 'reveal-job') {
     const job = state.jobs.get(button.dataset.id);
     if (job && job.files && job.files.length) api.reveal(job.files[job.files.length - 1].path);
@@ -882,10 +1286,10 @@ function onJobsClick(event) {
 }
 
 async function cancelJob(id) {
-  if (!id || !window.confirm('Annullare questo download?')) return;
+  if (!id || !window.confirm('Cancel this download?')) return;
   try {
     await api.cancelDownload(id);
-    toast('Download annullato');
+    toast('Download cancelled');
     await refreshJobs();
   } catch (error) {
     toast(errorMessage(error), 'err');
@@ -904,7 +1308,7 @@ async function clearDone() {
 
 async function openLog(id) {
   state.logJobId = id;
-  $('modalTitle').textContent = 'Log download';
+  $('modalTitle').textContent = 'Download log';
   $('logModal').classList.add('open');
   $('logModal').setAttribute('aria-hidden', 'false');
   await loadLog(id);
@@ -917,12 +1321,12 @@ async function loadLog(id) {
   try {
     const job = await api.getJob(id);
     if (!job) {
-      $('logBox').textContent = 'Download non trovato';
+      $('logBox').textContent = 'Download not found';
       return;
     }
     $('modalTitle').textContent = `Log — ${job.title || shortenUrl(job.url)}`;
     const box = $('logBox');
-    box.textContent = (job.log || []).join('\n') || '(nessun output ancora)';
+    box.textContent = (job.log || []).join('\n') || '(no output yet)';
     box.scrollTop = box.scrollHeight;
   } catch (error) {
     $('logBox').textContent = errorMessage(error);
@@ -942,13 +1346,13 @@ async function updateYtdlp() {
   state.updateBusy = true;
   const button = $('btnUpdateYtdlp');
   button.disabled = true;
-  $('updateStatus').textContent = 'Scarico l\'ultima versione...';
+  $('updateStatus').textContent = 'Downloading the latest version...';
   try {
     const updated = await api.updateYtDlp();
     if (state.defaults) state.defaults.binaries.ytdlp = updated;
     renderEngineInfo(state.defaults);
-    $('updateStatus').textContent = `Aggiornato a ${updated.version || 'ultima versione'}`;
-    toast('yt-dlp aggiornato');
+    $('updateStatus').textContent = `Updated to ${updated.version || 'latest version'}`;
+    toast('yt-dlp updated');
   } catch (error) {
     $('updateStatus').textContent = errorMessage(error);
     toast(errorMessage(error), 'err');
@@ -963,7 +1367,7 @@ function onUpdateProgress(progress) {
   const percent = Number.isFinite(progress && progress.percent)
     ? `${Math.round(progress.percent * 100)}%`
     : fmtBytes(progress && progress.received);
-  $('updateStatus').textContent = `Aggiornamento yt-dlp... ${percent}`;
+  $('updateStatus').textContent = `Updating yt-dlp... ${percent}`;
 }
 
 /* ============================== EDITOR ============================== */
@@ -1034,7 +1438,7 @@ function undoEditor() {
   state.future.push(editorSnapshot());
   const snapshot = state.history.pop();
   restoreEditor(snapshot);
-  toast('Modifica annullata');
+  toast('Change undone');
 }
 
 function redoEditor() {
@@ -1042,7 +1446,7 @@ function redoEditor() {
   state.history.push(editorSnapshot());
   const snapshot = state.future.pop();
   restoreEditor(snapshot);
-  toast('Modifica ripristinata');
+  toast('Change restored');
 }
 
 /* --------------------------- anteprima sequenza --------------------------- */
@@ -1093,7 +1497,7 @@ function stopMusicPreview() {
 
 function updatePreviewInfo(clip) {
   if (!clip) {
-    $('edSelection').textContent = 'Nessuna clip selezionata';
+    $('edSelection').textContent = 'No clip selected';
     return;
   }
   const duration = fmtTime((clip.out - clip.in) / (clip.speed || 1));
@@ -1136,10 +1540,10 @@ function startSequenceClip() {
     try {
       video.currentTime = Math.min(clip.in + 0.02, Math.max(0, clip.duration - 0.05));
     } catch {
-      /* seek non disponibile */
+      /* seek not available */
     }
     video.play().catch(() => {
-      toast('Anteprima non disponibile per questo formato', 'err');
+      toast('Preview not available for this format', 'err');
       stopPreview();
     });
   };
@@ -1163,7 +1567,7 @@ function startSequenceClip() {
 
 function playSequence() {
   if (!state.clips.length) {
-    toast('Aggiungi almeno una clip al montaggio', 'err');
+    toast('Add at least one clip to the timeline', 'err');
     return;
   }
   const start = state.clips.findIndex((clip) => clip.id === state.selectedId);
@@ -1186,11 +1590,11 @@ function seekPreview(delta) {
 function splitSelectedClip() {
   const clip = selectedClip();
   if (!clip) {
-    toast('Seleziona una clip da dividere', 'err');
+    toast('Select a clip to split', 'err');
     return;
   }
   if (clip.out - clip.in < 0.3) {
-    toast('Clip troppo corta per essere divisa', 'err');
+    toast('Clip is too short to split', 'err');
     return;
   }
   const video = $('edVideo');
@@ -1214,7 +1618,7 @@ function splitSelectedClip() {
   state.selectedId = second.id;
   renderEditor();
   loadPreview();
-  toast('Clip divisa al cursore');
+  toast('Clip split at the playhead');
 }
 
 function projectDuration() {
@@ -1251,7 +1655,7 @@ async function addPathsToEditor(paths) {
     try {
       const info = await api.probeFile(filePath);
       if (!info || !(info.duration > 0.05)) {
-        throw new Error(`${info && info.name ? info.name : 'File'}: durata non valida`);
+        throw new Error(`${info && info.name ? info.name : 'File'}: invalid duration`);
       }
       const clip = {
         id: uid(),
@@ -1467,7 +1871,7 @@ function renderEditor() {
 function renderTimeline() {
   const timeline = $('timeline');
   if (!state.clips.length) {
-    timeline.innerHTML = '<div class="timeline-empty">Nessuna clip: importa un file o trascinalo qui</div>';
+    timeline.innerHTML = '<div class="timeline-empty">No clips: import a file or drop it here</div>';
     return;
   }
 
@@ -1498,35 +1902,35 @@ function renderInspector() {
   if (!box) return;
 
   if (!clip) {
-    box.innerHTML = '<div class="muted">Seleziona una clip per vedere i dettagli tecnici.</div>';
+    box.innerHTML = '<div class="muted">Select a clip to see technical details.</div>';
     return;
   }
 
   const rows = [
     ['File', clip.name],
-    ['Durata', fmtTime(clip.duration)],
+    ['Duration', fmtTime(clip.duration)],
     [
       'Video',
       clip.hasVideo
         ? `${clip.width}×${clip.height} · ${(clip.fps || 0).toFixed(2)} fps · ${clip.videoCodec || '—'}`
-        : 'Nessuna traccia video',
+        : 'No video track',
     ],
     [
       'Audio',
       clip.hasAudio
-        ? `${clip.audioCodec || '—'} · ${clip.audioChannels || '?'} canali · ${Math.round((clip.audioSampleRate || 0) / 1000)} kHz`
-        : 'Nessuna traccia audio',
+        ? `${clip.audioCodec || '—'} · ${clip.audioChannels || '?'} channels · ${Math.round((clip.audioSampleRate || 0) / 1000)} kHz`
+        : 'No audio track',
     ],
-    ['Dimensione', fmtBytes(clip.size) || '—'],
-    ['Selezione', `${fmtTime(clip.in)} – ${fmtTime(clip.out)} (${fmtTime((clip.out - clip.in) / (clip.speed || 1))})`],
-    ['Effetti', clipEffectsTags(clip).join(' · ') || 'Nessuno'],
-    ['Percorso', clip.path],
+    ['Size', fmtBytes(clip.size) || '—'],
+    ['Selection', `${fmtTime(clip.in)} – ${fmtTime(clip.out)} (${fmtTime((clip.out - clip.in) / (clip.speed || 1))})`],
+    ['Effects', clipEffectsTags(clip).join(' · ') || 'None'],
+    ['Path', clip.path],
   ];
 
   box.innerHTML = rows
     .map(
       ([key, value]) =>
-        `<div class="inspect-row${key === 'Percorso' ? ' wide' : ''}"><span class="inspect-key">${key}</span><span class="inspect-val" title="${esc(value)}">${esc(value)}</span></div>`,
+        `<div class="inspect-row${key === 'Path' ? ' wide' : ''}"><span class="inspect-key">${key}</span><span class="inspect-val" title="${esc(value)}">${esc(value)}</span></div>`,
     )
     .join('');
 }
@@ -1551,7 +1955,7 @@ function refreshInspectorValues() {
     $('edFrame').textContent = 'F: 0';
     if ($('edScrub')) $('edScrub').value = '0';
     $('clipDuration').textContent = '0:00.0';
-    $('clipIndexLabel').textContent = 'nessuna clip';
+    $('clipIndexLabel').textContent = 'no clip';
     return;
   }
 
@@ -1632,12 +2036,12 @@ function refreshInspectorValues() {
   if (rotate) transform.push(`ruotata di ${rotate}°`);
   if (clip.flipH) transform.push('specchiata in orizzontale');
   if (clip.flipV) transform.push('specchiata in verticale');
-  $('transformHint').textContent = transform.length ? `${transform.join(' · ')}.` : 'Nessuna rotazione o specchiatura.';
+  $('transformHint').textContent = transform.length ? `${transform.join(' · ')}.` : 'No rotation or flip.';
 
   if ($('snapshotStatus')) {
     $('snapshotStatus').textContent = state.snapshotPath
-      ? `Ultima istantanea: ${state.snapshotName || state.snapshotPath}`
-      : 'Il PNG viene salvato in Immagini\\MoliDowloader.';
+      ? `Last snapshot: ${state.snapshotName || state.snapshotPath}`
+      : 'The PNG is saved in Pictures\\MoliDowloader.';
   }
 
   applyPreviewEffects();
@@ -1683,7 +2087,7 @@ function loadPreview() {
     video.load();
     $('previewEmpty').hidden = false;
     $('previewBadge').hidden = true;
-    $('edSelection').textContent = 'Nessuna clip selezionata';
+    $('edSelection').textContent = 'No clip selected';
     $('edTime').textContent = '00:00.0 / 00:00.0';
     refreshInspectorValues();
     return;
@@ -1737,7 +2141,7 @@ function updateVideoTime() {
 function stepFrame(delta) {
   const clip = selectedClip();
   if (!clip) {
-    toast('Seleziona una clip', 'err');
+    toast('Select a clip', 'err');
     return;
   }
   if (state.previewMode === 'sequence') stopPreview(false);
@@ -1753,7 +2157,7 @@ function stepFrame(delta) {
   try {
     video.currentTime = next;
   } catch {
-    /* seek non disponibile */
+    /* seek not available */
   }
   updateVideoTime();
 }
@@ -1783,7 +2187,7 @@ function onVideoTime() {
     state.previewIndex += 1;
     if (state.previewIndex >= state.clips.length) {
       stopPreview(false);
-      $('edSelection').textContent = 'Fine del montaggio';
+      $('edSelection').textContent = 'End of timeline';
       toast('Anteprima completata');
       return;
     }
@@ -1799,7 +2203,7 @@ function onVideoTime() {
 function playSelection() {
   const clip = selectedClip();
   if (!clip) {
-    toast('Seleziona una clip', 'err');
+    toast('Select a clip', 'err');
     return;
   }
   stopMusicPreview();
@@ -1823,7 +2227,7 @@ function playSelection() {
   state.previewStopAt = clip.out;
   updatePreviewInfo(clip);
   video.play().catch(() => {
-    toast('Anteprima non disponibile per questo formato', 'err');
+    toast('Preview not available for this format', 'err');
     state.previewStopAt = null;
   });
 }
@@ -2018,7 +2422,7 @@ function onInspectorClick(event) {
     } else {
       const video = $('edVideo');
       if (video.dataset.clipId !== clip.id || !Number.isFinite(video.currentTime)) {
-        toast('Carica la clip nel player per usare il cursore', 'err');
+        toast('Load the clip in the player to use the playhead', 'err');
         return;
       }
       if (action === 'in') {
@@ -2080,16 +2484,16 @@ function onInspectorClick(event) {
 async function captureSnapshot() {
   const clip = selectedClip();
   if (!clip) {
-    toast('Seleziona una clip video', 'err');
+    toast('Select a video clip', 'err');
     return;
   }
   if (!clip.hasVideo) {
-    toast('Questa clip non contiene video', 'err');
+    toast('This clip has no video', 'err');
     return;
   }
   const video = $('edVideo');
   if (video.dataset.clipId !== clip.id || !video.videoWidth) {
-    toast('Attendi che il fotogramma sia caricato', 'err');
+    toast('Wait for the frame to load', 'err');
     return;
   }
   if (video.readyState < 2) {
@@ -2107,7 +2511,7 @@ async function captureSnapshot() {
     });
   }
   if (video.readyState < 2) {
-    toast('Attendi che il fotogramma sia caricato', 'err');
+    toast('Wait for the frame to load', 'err');
     return;
   }
 
@@ -2120,7 +2524,7 @@ async function captureSnapshot() {
     canvas.width = swapped ? height : width;
     canvas.height = swapped ? width : height;
     const context = canvas.getContext('2d');
-    if (!context) throw new Error('Canvas non disponibile');
+    if (!context) throw new Error('Canvas not available');
 
     context.fillStyle = '#000';
     context.fillRect(0, 0, canvas.width, canvas.height);
@@ -2135,18 +2539,18 @@ async function captureSnapshot() {
     context.restore();
 
     const dataUrl = canvas.toDataURL('image/png');
-    const base = clip.name.replace(/\.[^.]+$/, '') || 'fotogramma';
+    const base = clip.name.replace(/\.[^.]+$/, '') || 'frame';
     const stamp = fmtTime(video.currentTime).replace(/[:.]/g, '-');
     const result = await api.saveSnapshot({ dataUrl, name: `${base}-${stamp}` });
-    if (!result || !result.ok) throw new Error('Salvataggio non riuscito');
+    if (!result || !result.ok) throw new Error('Save failed');
     state.snapshotPath = result.path;
     state.snapshotDir = result.dir || '';
     state.snapshotName = result.name;
-    $('snapshotStatus').textContent = `Salvato: ${result.path}`;
+    $('snapshotStatus').textContent = `Saved: ${result.path}`;
     $('snapshotResult').hidden = false;
-    toast('Fotogramma salvato');
+    toast('Frame saved');
   } catch (error) {
-    $('snapshotStatus').textContent = `Istantanea non riuscita: ${errorMessage(error)}`;
+    $('snapshotStatus').textContent = `Snapshot failed: ${errorMessage(error)}`;
     toast(errorMessage(error), 'err');
   }
 }
@@ -2166,7 +2570,7 @@ function removeSelectedClip() {
 
 function clearProject() {
   if (!state.clips.length && !state.music) return;
-  if (!window.confirm('Svuotare il montaggio? Le clip importate non verranno cancellate dal disco.')) return;
+  if (!window.confirm('Clear the timeline? Imported clips will not be deleted from disk.')) return;
   pushHistory();
   stopPreview();
   state.clips = [];
@@ -2179,7 +2583,7 @@ function clearProject() {
   state.lastExport = null;
   $('exportResult').hidden = true;
   $('exportBar').style.width = '0%';
-  $('exportStatus').textContent = 'Pronto per esportare.';
+  $('exportStatus').textContent = 'Ready to export.';
   renderEditor();
   loadPreview();
 }
@@ -2247,7 +2651,7 @@ async function addMusic() {
     const filePath = await api.pickAudio();
     if (!filePath) return;
     const info = await api.probeFile(filePath);
-    if (!info.hasAudio) throw new Error('Il file non contiene audio');
+    if (!info.hasAudio) throw new Error('The file has no audio');
     pushHistory();
     state.music = {
       path: info.path,
@@ -2259,7 +2663,7 @@ async function addMusic() {
       loop: true,
     };
     renderMusic();
-    toast('Traccia musicale aggiunta');
+    toast('Music track added');
   } catch (error) {
     toast(errorMessage(error), 'err');
   }
@@ -2289,13 +2693,13 @@ function syncExportMode() {
 async function startExport() {
   if (state.exporting) return;
   if (!state.clips.length) {
-    toast('Aggiungi almeno una clip al montaggio', 'err');
+    toast('Add at least one clip to the timeline', 'err');
     return;
   }
 
   const format = $('exportFormat').value;
   const project = {
-    name: $('projectName').value.trim() || 'Montaggio',
+    name: $('projectName').value.trim() || 'Timeline',
     clips: state.clips.map((clip) => ({
       path: clip.path,
       in: clip.in,
@@ -2337,28 +2741,28 @@ async function startExport() {
   state.lastExport = null;
   $('exportResult').hidden = true;
   $('exportBar').style.width = '0%';
-  $('exportStatus').textContent = 'Preparazione del montaggio...';
+  $('exportStatus').textContent = 'Preparing the timeline...';
   setExportBusy(true);
 
   try {
     const result = await api.exportProject(project);
     if (result.canceled) {
-      $('exportStatus').textContent = 'Esportazione annullata.';
+      $('exportStatus').textContent = 'Export cancelled.';
       $('exportBar').style.width = '0%';
     } else if (result.ok) {
       state.lastExport = result.path;
       $('exportBar').style.width = '100%';
-      $('exportStatus').textContent = `Esportato: ${result.name} (${fmtBytes(result.size)})`;
+      $('exportStatus').textContent = `Exported: ${result.name} (${fmtBytes(result.size)})`;
       $('exportResult').hidden = false;
-      toast('Montaggio esportato');
+      toast('Timeline exported');
     }
   } catch (error) {
     const message = errorMessage(error);
     if (/annullata/i.test(message)) {
-      $('exportStatus').textContent = 'Esportazione annullata.';
+      $('exportStatus').textContent = 'Export cancelled.';
       $('exportBar').style.width = '0%';
     } else {
-      $('exportStatus').textContent = `Errore: ${message}`;
+      $('exportStatus').textContent = `Error: ${message}`;
       toast(message, 'err');
     }
   } finally {
@@ -2370,13 +2774,13 @@ async function startExport() {
 function setExportBusy(busy) {
   $('btnExport').disabled = busy;
   $('btnExportTop').disabled = busy;
-  $('btnExport').textContent = busy ? 'Esportazione...' : 'Esporta montaggio';
+  $('btnExport').textContent = busy ? 'Exporting...' : 'Export timeline';
   $('btnCancelExport').hidden = !busy;
 }
 
 async function cancelExport() {
   if (!state.exporting) return;
-  $('exportStatus').textContent = 'Annullamento in corso...';
+  $('exportStatus').textContent = 'Cancelling...';
   try {
     await api.cancelExport();
   } catch (error) {
@@ -2388,7 +2792,7 @@ function onExportProgress(progress) {
   if (!state.exporting) return;
   const percent = clamp((Number(progress.progress) || 0) * 100, 0, 100);
   $('exportBar').style.width = `${percent.toFixed(1)}%`;
-  $('exportStatus').textContent = `Esportazione ${percent.toFixed(0)}% · ${fmtTime(progress.seconds || 0)} / ${fmtTime(progress.total || 0)}`;
+  $('exportStatus').textContent = `Exporting ${percent.toFixed(0)}% · ${fmtTime(progress.seconds || 0)} / ${fmtTime(progress.total || 0)}`;
 }
 
 /* ============================= COMPRIMI ============================= */
@@ -2555,8 +2959,8 @@ const FALLBACK_COMPRESS_CATALOG = {
       id: 'libvpx-vp9', label: 'VP9 · libvpx (software)', short: 'VP9', family: 'vp9', codec: 'vp9',
       hardware: false, containers: ['mkv', 'webm'], defaultPreset: '2',
       presets: [
-        { value: '0', label: '0 · massima qualità' }, { value: '2', label: '2 · equilibrato' },
-        { value: '4', label: '4' }, { value: '6', label: '6 · veloce' }, { value: '8', label: '8 · massima velocità' },
+        { value: '0', label: '0 · maximum quality' }, { value: '2', label: '2 · balanced' },
+        { value: '4', label: '4' }, { value: '6', label: '6 · fast' }, { value: '8', label: '8 · maximum speed' },
       ],
       tunes: [], profiles: ['auto', '0', '1', '2', '3'],
       quality: { min: 0, max: 63, step: 1, default: 32, label: 'CRF' }, twoPass: false,
@@ -2566,8 +2970,8 @@ const FALLBACK_COMPRESS_CATALOG = {
       id: 'libaom-av1', label: 'AV1 · libaom (software, lento)', short: 'AV1 libaom', family: 'aom', codec: 'av1',
       hardware: false, containers: ['mp4', 'mkv', 'webm'], defaultPreset: '6',
       presets: [
-        { value: '0', label: '0 · massima qualità' }, { value: '4', label: '4' },
-        { value: '6', label: '6 · equilibrato' }, { value: '8', label: '8 · massima velocità' },
+        { value: '0', label: '0 · maximum quality' }, { value: '4', label: '4' },
+        { value: '6', label: '6 · balanced' }, { value: '8', label: '8 · maximum speed' },
       ],
       tunes: [], profiles: ['auto', 'main'],
       quality: { min: 0, max: 63, step: 1, default: 30, label: 'CRF' }, twoPass: false,
@@ -2674,8 +3078,8 @@ function renderCompressSource() {
   const start = $('btnStartCompress');
 
   if (!source) {
-    name.textContent = 'Nessun video selezionato';
-    meta.textContent = 'Scegli un file o trascinalo qui per iniziare';
+    name.textContent = 'No video selected';
+    meta.textContent = 'Choose a file or drop it here to start';
     if (start) start.disabled = true;
     updateCompressVideoTrackSelect();
     return;
@@ -2703,7 +3107,7 @@ function updateCompressVideoTrackSelect() {
   if (!select) return;
   const source = state.compressSource;
   if (!source || !source.videoTracks.length) {
-    select.innerHTML = '<option value="0">Principale</option>';
+    select.innerHTML = '<option value="0">Main</option>';
     select.disabled = true;
     return;
   }
@@ -2727,7 +3131,7 @@ function populateCompressEncoderSelect(preferredId) {
   const list = catalog.videoEncoders.filter((encoder) => encoder.containers.includes(container));
   const working = compressWorkingSet();
   if (!list.length) {
-    select.innerHTML = '<option value="">Nessun encoder</option>';
+    select.innerHTML = '<option value="">No encoder</option>';
     return;
   }
   const usable = (encoder) => !encoder.hardware || working.has(encoder.id);
@@ -2763,7 +3167,7 @@ function populateCompressEncoderSelect(preferredId) {
   const hardwareOptions = hardware
     .map((encoder) => {
       const available = working.has(encoder.id);
-      const suffix = available ? '' : ' · non disponibile';
+      const suffix = available ? '' : ' · not available';
       return `<option value="${encoder.id}" ${available ? '' : 'disabled'}>${esc(encoder.label)}${suffix}</option>`;
     })
     .join('');
@@ -2801,10 +3205,10 @@ function updateCompressEncoderUi({ resetQuality = true } = {}) {
 
   if (encoder.hardware) {
     const gpu = (state.compressSystem && state.compressSystem.gpus.find((item) => item.vendor === encoder.vendor)) || null;
-    note.textContent = `Render forzato su ${gpu ? gpu.name : 'GPU'} · ${encoder.short}. Nessun fallback automatico al software.`;
+    note.textContent = `Forced rendering on ${gpu ? gpu.name : 'GPU'} · ${encoder.short}. No automatic software fallback.`;
     note.className = 'encoder-note hw';
   } else {
-    note.textContent = `Encoding su CPU (${encoder.short}). Se attivi “Forza la GPU”, uso l'encoder hardware migliore disponibile.`;
+    note.textContent = `Encoding on CPU (${encoder.short}). If you enable "Force GPU", the best available hardware encoder is used.`;
     note.className = 'encoder-note';
   }
 
@@ -2812,8 +3216,8 @@ function updateCompressEncoderUi({ resetQuality = true } = {}) {
   if (hwToggle) {
     hwToggle.disabled = !encoder.hardware;
     hwToggle.title = encoder.hardware
-      ? 'Decodifica hardware (NVDEC/D3D11VA) con fallback automatico sul software se il formato non è supportato.'
-      : 'Disponibile solo con encoder GPU.';
+      ? 'Hardware decoding (NVDEC/D3D11VA) with automatic software fallback if the format is unsupported.'
+      : 'Only available with a GPU encoder.';
   }
 
   const presetSelect = $('compressPreset');
@@ -2945,16 +3349,16 @@ function syncCompressAudioCodecUi() {
   $('compressMerge').disabled = !hasAudio;
   const merge = $('compressMerge').checked;
   const hint = $('compressAudioHint');
-  if (!hasAudio) hint.textContent = 'Il video non contiene audio: l\'output sarà muto.';
+  if (!hasAudio) hint.textContent = 'The video has no audio: the output will be silent.';
   else if (merge) {
-    hint.textContent = `Le ${state.compressAudioSelected.size} tracce selezionate verranno mixate in un\'unica traccia. Regola il volume accanto a ciascuna traccia.`;
+    hint.textContent = `${state.compressAudioSelected.size} selected tracks will be merged into one track. Adjust the volume next to each track.`;
   } else if (passthrough) {
-    hint.textContent = `${state.compressAudioSelected.size} tracce mantenute senza ricodifica.`;
+    hint.textContent = `${state.compressAudioSelected.size} tracks kept without re-encoding.`;
   } else {
-    hint.textContent = `${state.compressAudioSelected.size} tracce ricodificate in ${codec.toUpperCase()}.`;
+    hint.textContent = `${state.compressAudioSelected.size} tracks re-encoded to ${codec.toUpperCase()}.`;
   }
   if ($('compressLoudnorm') && $('compressLoudnorm').checked) {
-    hint.textContent += ' Volume normalizzato a −16 LUFS.';
+    hint.textContent += ' Volume normalized to −16 LUFS.';
   }
 }
 
@@ -2962,7 +3366,7 @@ function renderCompressAudioTracks() {
   const container = $('compressAudioTracks');
   const source = state.compressSource;
   if (!source || !source.audioTracks.length) {
-    container.innerHTML = '<div class="muted">Nessuna traccia audio.</div>';
+    container.innerHTML = '<div class="muted">No audio tracks.</div>';
     return;
   }
   const merge = $('compressMerge').checked;
@@ -2970,10 +3374,10 @@ function renderCompressAudioTracks() {
     .map((track) => {
       const selected = state.compressAudioSelected.has(track.index);
       const gain = state.compressGains[track.index] == null ? 100 : Math.round(state.compressGains[track.index] * 100);
-      const title = track.title || `Traccia ${track.order + 1}`;
+      const title = track.title || `Track ${track.order + 1}`;
       const meta = [
         track.codec.toUpperCase(),
-        `${track.channels} canali`,
+        `${track.channels} channels`,
         track.sampleRate ? `${Math.round(track.sampleRate / 1000)} kHz` : '',
         track.bitrate ? `${Math.round(track.bitrate / 1000)} kbps` : '',
       ]
@@ -2996,7 +3400,7 @@ function renderCompressSubtitleTracks() {
   const container = $('compressSubtitleTracks');
   const source = state.compressSource;
   if (!source || !source.subtitleTracks.length) {
-    container.innerHTML = '<div class="muted">Nessuna traccia sottotitoli.</div>';
+    container.innerHTML = '<div class="muted">No subtitle tracks.</div>';
     return;
   }
   const targetContainer = compressContainer();
@@ -3011,7 +3415,7 @@ function renderCompressSubtitleTracks() {
       return `<label class="track-row ${selected ? 'selected' : ''} ${compatible ? '' : 'disabled'}" data-sub-row="${track.index}">
         <input class="track-checkbox" type="checkbox" data-sub-index="${track.index}" ${selected ? 'checked' : ''} ${compatible ? '' : 'disabled'}>
         <div class="track-main">
-          <div class="track-title">${esc(track.title || `Sottotitoli ${track.order + 1}`)}</div>
+          <div class="track-title">${esc(track.title || `Subtitles ${track.order + 1}`)}</div>
           <div class="track-meta">${esc(meta)}</div>
         </div>
         ${compatible ? '' : `<span class="track-badge warn">no ${esc(targetContainer.toUpperCase())}</span>`}
@@ -3027,7 +3431,7 @@ function renderBurnSubtitleSelect() {
   const tracks = source ? source.subtitleTracks.filter((track) => track.text) : [];
   const previous = select.value;
   if (!tracks.length) {
-    select.innerHTML = '<option value="">Nessun sottotitolo testuale</option>';
+    select.innerHTML = '<option value="">No text subtitles</option>';
     select.disabled = true;
     if ($('compressBurnSubs').checked) {
       $('compressBurnSubs').checked = false;
@@ -3039,7 +3443,7 @@ function renderBurnSubtitleSelect() {
   select.innerHTML = tracks
     .map(
       (track) =>
-        `<option value="${track.index}">${esc(track.title || `Sottotitoli ${track.order + 1}`)}${track.language ? ` · ${esc(track.language)}` : ''}</option>`,
+        `<option value="${track.index}">${esc(track.title || `Subtitles ${track.order + 1}`)}${track.language ? ` · ${esc(track.language)}` : ''}</option>`,
     )
     .join('');
   if (tracks.some((track) => String(track.index) === previous)) select.value = previous;
@@ -3059,10 +3463,10 @@ function renderCompressTracks() {
   const hint = $('compressSubtitleHint');
   hint.textContent =
     container === 'mkv'
-      ? 'In MKV i sottotitoli vengono copiati integralmente, anche quelli bitmap (PGS/DVD).'
+      ? 'In MKV, subtitles are copied in full, including bitmap subtitles (PGS/DVD).'
       : 'In ' +
         container.toUpperCase() +
-        ' vengono convertiti solo i sottotitoli testuali; quelli bitmap sono disponibili solo in MKV.';
+        ' only text subtitles are converted; bitmap subtitles are available only in MKV.';
   const mergeToggle = $('compressMerge');
   mergeToggle.disabled = !(state.compressSource && state.compressSource.audioTracks.length);
   syncCompressAudioCodecUi();
@@ -3085,18 +3489,18 @@ function renderCompressGpuPanel() {
 
   if (state.compressScanning) {
     status.className = 'gpu-scan-status busy';
-    status.textContent = 'Test degli encoder hardware in corso (NVENC, Quick Sync, AMF, VideoToolbox)...';
+    status.textContent = 'Testing hardware encoders (NVENC, Quick Sync, AMF, VideoToolbox)...';
     list.innerHTML = '';
-    hint.textContent = 'Sto verificando quali encoder si inizializzano davvero su questa macchina.';
+    hint.textContent = 'Checking which encoders actually initialize on this machine.';
     force.disabled = true;
     return;
   }
 
   if (state.compressScanError) {
     status.className = 'gpu-scan-status warn';
-    status.textContent = `Scansione non riuscita: ${state.compressScanError}`;
+    status.textContent = `Scan failed: ${state.compressScanError}`;
     list.innerHTML = '';
-    hint.textContent = 'Puoi comunque comprimere con gli encoder software.';
+    hint.textContent = 'You can still compress with software encoders.';
     force.disabled = true;
     force.checked = false;
     return;
@@ -3104,9 +3508,9 @@ function renderCompressGpuPanel() {
 
   if (!system) {
     status.className = 'gpu-scan-status';
-    status.textContent = 'Scansione non ancora eseguita.';
+    status.textContent = 'No scan yet.';
     list.innerHTML = '';
-    hint.textContent = 'Premi “Scansiona” per rilevare GPU ed encoder hardware.';
+    hint.textContent = 'Press "Scan" to detect GPUs and hardware encoders.';
     force.disabled = true;
     return;
   }
@@ -3130,18 +3534,18 @@ function renderCompressGpuPanel() {
             </div>`,
           )
           .join('')
-      : '<div class="gpu-item"><div class="gpu-name">Nessuna GPU rilevata</div></div>') +
+      : '<div class="gpu-item"><div class="gpu-name">No GPU detected</div></div>') +
     `<div class="gpu-chips">${workingChips.join('')}${failedChips.length && !workingChips.length ? failedChips.join('') : ''}</div>`;
 
   if (!gpus.length) {
     status.className = 'gpu-scan-status warn';
-    status.textContent = 'Nessuna GPU rilevata: verrà usato l\'encoder software.';
+    status.textContent = 'No GPU detected: the software encoder will be used.';
   } else if (available) {
     status.className = 'gpu-scan-status ok';
     status.textContent = `${working.size} encoder hardware pronti: ${(system.working || []).join(', ')}`;
   } else {
     status.className = 'gpu-scan-status warn';
-    status.textContent = 'GPU trovata, ma nessun encoder hardware è inizializzabile. Aggiorna i driver o usa il software.';
+    status.textContent = 'GPU found, but no hardware encoder can initialize. Update the drivers or use software.';
   }
 
   force.disabled = !available;
@@ -3154,7 +3558,7 @@ function renderCompressGpuPanel() {
     const recommended = compressCatalogEncoder(system.recommended);
     hint.textContent = `Consigliato: ${recommended ? recommended.label : system.recommended}.`;
   } else {
-    hint.textContent = 'Render software: scegli un encoder GPU o attiva “Forza la GPU”.';
+    hint.textContent = 'Software rendering: choose a GPU encoder or enable "Force GPU".';
   }
 }
 
@@ -3163,7 +3567,7 @@ function updateCompressSummary() {
   if (!box || !state.compressCatalog) return;
   const encoder = currentCompressEncoder();
   if (!encoder) {
-    box.innerHTML = '<div class="muted">Nessun encoder disponibile.</div>';
+    box.innerHTML = '<div class="muted">No encoder available.</div>';
     return;
   }    const source = state.compressSource;
     const container = compressContainer();
@@ -3197,11 +3601,11 @@ function updateCompressSummary() {
       ),
     );
   }
-  rows.push(row('Contenitore', container.toUpperCase()));
-  if (mode === 'quality') rows.push(row('Qualità', `${encoder.quality.label} ${quality}`));
+  rows.push(row('Container', container.toUpperCase()));
+  if (mode === 'quality') rows.push(row('Quality', `${encoder.quality.label} ${quality}`));
   else if (mode === 'twopass') rows.push(row('Bitrate', `${bitrate} kbps · 2 passate`));
   else if (mode === 'target') {
-    rows.push(row('Dimensione', `${Math.round(Number($('compressTarget').value) || 0)} MB target`));
+    rows.push(row('Size', `${Math.round(Number($('compressTarget').value) || 0)} MB target`));
   } else rows.push(row('Bitrate', `${bitrate} kbps · ${mode.toUpperCase()}`));
   if ($('compressPreset').value) rows.push(row('Preset', $('compressPreset').value));
 
@@ -3209,40 +3613,40 @@ function updateCompressSummary() {
   const resolutionLabel =
     resolution === 'source'
       ? source && source.videoTracks[0]
-        ? `Originale ${source.videoTracks[0].width}×${source.videoTracks[0].height}`
-        : 'Originale'
+        ? `Original ${source.videoTracks[0].width}×${source.videoTracks[0].height}`
+        : 'Original'
       : resolution === 'custom'
         ? `${$('compressWidth').value || 'auto'}×${$('compressHeight').value || 'auto'}`
         : resolution;
-  rows.push(row('Risoluzione', resolutionLabel));
-  rows.push(row('FPS', $('compressFps').value === 'source' ? 'Originale' : $('compressFps').value));
+  rows.push(row('Resolution', resolutionLabel));
+  rows.push(row('FPS', $('compressFps').value === 'source' ? 'Original' : $('compressFps').value));
   rows.push(
     row(
       'Audio',
       source && source.audioTracks.length
         ? merge
-          ? `Mix di ${audioCount} tracce · ${audioCodec.toUpperCase()}`
-          : `${audioCount} tracce · ${audioCodec === 'copy' ? 'copia' : audioCodec.toUpperCase()}`
-        : 'Nessun audio',
+          ? `Mix of ${audioCount} tracks · ${audioCodec.toUpperCase()}`
+          : `${audioCount} tracks · ${audioCodec === 'copy' ? 'copy' : audioCodec.toUpperCase()}`
+        : 'No audio',
     ),
   );
   rows.push(
     row(
-      'Sottotitoli',
-      source && source.subtitleTracks.length ? `${state.compressSubtitleSelected.size} tracce` : 'Nessuno',
+      'Subtitles',
+      source && source.subtitleTracks.length ? `${state.compressSubtitleSelected.size} tracks` : 'None',
     ),
   );
   const output = $('compressOutput').value.trim();
-  rows.push(row('Output', output ? output.split(/[\\/]/).pop() : 'scelto al salvataggio'));
+  rows.push(row('Output', output ? output.split(/[\\/]/).pop() : 'chosen on save'));
 
   const planEstimate = estimateCompressPlan();
   if (planEstimate && planEstimate.range.trimmed) {
-    rows.push(row('Taglio', `${fmtTime(planEstimate.range.start)} → ${fmtTime(planEstimate.range.end)}`));
+    rows.push(row('Trim', `${fmtTime(planEstimate.range.start)} → ${fmtTime(planEstimate.range.end)}`));
   }
   if (planEstimate) rows.push(row('Video', `${Math.round(planEstimate.videoKbps)} kbps`));
   if ($('compressLoudnorm') && $('compressLoudnorm').checked) rows.push(row('Volume', 'loudnorm −16 LUFS'));
-  if (planEstimate && planEstimate.burned) rows.push(row('Sottotitoli', 'bruciati nel video'));
-  if (planEstimate) rows.push(row('Stima', `~${fmtBytes(planEstimate.bytes)}`));
+  if (planEstimate && planEstimate.burned) rows.push(row('Subtitles', 'burned into the video'));
+  if (planEstimate) rows.push(row('Estimate', `~${fmtBytes(planEstimate.bytes)}`));
   if (state.compressBusy) rows.push(row('Stato', `${Math.round(state.compressPercent)}%`));
   box.innerHTML = rows.join('');
   updateCompressEstimate();
@@ -3513,11 +3917,11 @@ function updateCompressEstimate() {
 
   if (!estimate) {
     size.textContent = '—';
-    sub.textContent = state.compressSource ? 'Completa le impostazioni per la stima.' : 'Scegli un video per vedere la stima.';
+    sub.textContent = state.compressSource ? 'Complete the settings to see the estimate.' : 'Choose a video to see the estimate.';
     details.innerHTML = '';
     if (fill) fill.style.width = '0%';
     if (badge) badge.textContent = 'auto';
-    if (note) note.textContent = 'La stima si aggiorna a ogni modifica ed è indicativa (±15%).';
+    if (note) note.textContent = 'The estimate updates with every change and is approximate (±15%).';
     return;
   }
 
@@ -3526,9 +3930,9 @@ function updateCompressEstimate() {
   size.innerHTML = estimateSizeHtml(estimate.bytes);
   const percent = original ? (estimate.bytes / original) * 100 : 0;
   const delta = original ? 1 - estimate.bytes / original : null;
-  const deltaLabel = delta == null ? '' : ` · ${delta >= 0 ? '−' : '+'}${Math.abs(Math.round(delta * 100))}% vs originale`;
+  const deltaLabel = delta == null ? '' : ` · ${delta >= 0 ? '−' : '+'}${Math.abs(Math.round(delta * 100))}% vs original`;
   const rangeLabel = `${fmtBytes(estimate.bytes * 0.85)} – ${fmtBytes(estimate.bytes * 1.15)}`;
-  sub.textContent = `${original ? `Originale ${fmtBytes(original)}` : 'Dimensione originale sconosciuta'}${deltaLabel} · intervallo ${rangeLabel}`;
+  sub.textContent = `${original ? `Original ${fmtBytes(original)}` : 'Original size unknown'}${deltaLabel} · range ${rangeLabel}`;
 
   const modeLabels = {
     quality: `${estimate.encoder.quality.label} ${$('compressQuality').value}`,
@@ -3539,9 +3943,9 @@ function updateCompressEstimate() {
   };
   const rows = [
     ['Video', `${Math.round(estimate.videoKbps / 100) / 10} Mbps`],
-    ['Audio', estimate.audioKbps ? `${Math.round(estimate.audioKbps)} kbps` : 'nessuno'],
-    ['Durata', fmtTime(estimate.duration)],
-    ['Risoluzione', `${estimate.geometry.width}×${estimate.geometry.height}`],
+    ['Audio', estimate.audioKbps ? `${Math.round(estimate.audioKbps)} kbps` : 'none'],
+    ['Duration', fmtTime(estimate.duration)],
+    ['Resolution', `${estimate.geometry.width}×${estimate.geometry.height}`],
     ['FPS', estimate.geometry.fps ? estimate.geometry.fps.toFixed(2).replace(/\.00$/, '') : 'originale'],
     ['Controllo', modeLabels[estimate.mode] || estimate.mode],
   ];
@@ -3552,28 +3956,28 @@ function updateCompressEstimate() {
     )
     .join('');
   if (fill) fill.style.width = `${clamp(percent, 1, 100).toFixed(1)}%`;
-  if (badge) badge.textContent = percent ? `${Math.round(percent)}%` : 'stima';
+  if (badge) badge.textContent = percent ? `${Math.round(percent)}%` : 'estimate';
   if (note) {
     if (estimate.mode === 'target') {
-      note.textContent = `Il bitrate video (${Math.round(estimate.videoKbps)} kbps) è calcolato per rientrare in ${estimate.targetMB} MB${estimate.range.trimmed ? ' con il taglio scelto' : ''}.`;
+      note.textContent = `Video bitrate (${Math.round(estimate.videoKbps)} kbps) is calculated to fit within ${estimate.targetMB} MB${estimate.range.trimmed ? ' with the selected trim' : ''}.`;
     } else if (estimate.mode === 'quality') {
-      note.textContent = `Stima su risoluzione, fps e qualità scelta (sorgente ${Math.round(estimate.sourceKbps)} kbps): l'errore tipico è ±15-20%.`;
+      note.textContent = `Estimate based on resolution, fps, and quality (source ${Math.round(estimate.sourceKbps)} kbps): typical error is ±15-20%.`;
     } else {
-      note.textContent = 'Con un bitrate fisso il peso dipende quasi solo dalla durata: la stima è precisa entro pochi punti percentuali.';
+      note.textContent = 'With a fixed bitrate the size depends mostly on duration: the estimate is accurate within a few percent.';
     }
   }
   const targetNote = $('compressTargetNote');
   if (targetNote) {
     targetNote.textContent =
       estimate.mode === 'target'
-        ? `Bitrate video calcolato: ${Math.round(estimate.videoKbps)} kbps per ${estimate.targetMB} MB in ${fmtTime(estimate.duration)}.`
-        : 'Il bitrate video viene calcolato dalla durata per rientrare nella dimensione scelta.';
+        ? `Calculated video bitrate: ${Math.round(estimate.videoKbps)} kbps for ${estimate.targetMB} MB in ${fmtTime(estimate.duration)}.`
+        : 'The video bitrate is calculated from the duration to fit the chosen size.';
   }
   const rangeNote = $('compressRangeNote');
   if (rangeNote) {
     rangeNote.textContent = estimate.range.trimmed
       ? `Compresso da ${fmtTime(estimate.range.start)} a ${fmtTime(estimate.range.end)} · ${fmtTime(estimate.range.duration)} su ${fmtTime(estimate.range.total)}.`
-      : `Nessun taglio: viene compresso tutto il video (${fmtTime(estimate.range.total)}).`;
+      : `No trim: the whole video is compressed (${fmtTime(estimate.range.total)}).`;
   }
 }
 
@@ -3600,12 +4004,12 @@ function prefillCompressOutput() {
 async function loadCompressSource(filePath) {
   if (!filePath) return;
   if (state.compressBusy) {
-    toast('Attendi la fine della compressione', 'err');
+    toast('Wait for compression to finish', 'err');
     return;
   }
   try {
     const source = await api.probeCompress(filePath);
-    if (!source || !source.hasVideo) throw new Error('Il file non contiene una traccia video');
+    if (!source || !source.hasVideo) throw new Error('The file has no video track');
     state.compressSource = source;
     state.compressAudioSelected = new Set(source.audioTracks.map((track) => track.index));
     state.compressSubtitleSelected = new Set(source.subtitleTracks.map((track) => track.index));
@@ -3614,7 +4018,7 @@ async function loadCompressSource(filePath) {
     const duration = Math.max(0, Number(source.duration) || 0);
     $('compressStart').max = String(Math.max(0, duration - 0.1));
     $('compressEnd').max = String(duration);
-    $('compressEnd').placeholder = `fine video (${fmtTime(duration)})`;
+    $('compressEnd').placeholder = `end of video (${fmtTime(duration)})`;
     renderCompressSource();
     applyCompressPreset('balanced');
     prefillCompressOutput();
@@ -3882,7 +4286,7 @@ function setCompressBusy(busy) {
   state.compressBusy = busy;
   const start = $('btnStartCompress');
   start.disabled = busy || !state.compressSource;
-  start.textContent = busy ? 'Compressione...' : 'Comprimi video';
+  start.textContent = busy ? 'Compressing...' : 'Compress video';
   $('btnCancelCompress').hidden = !busy;
   $('compressOutput').disabled = busy;
 }
@@ -3890,20 +4294,20 @@ function setCompressBusy(busy) {
 async function startCompress() {
   if (state.compressBusy) return;
   if (!state.compressSource) {
-    toast('Scegli prima un video da comprimere', 'err');
+    toast('Choose a video to compress first', 'err');
     return;
   }
   const encoder = currentCompressEncoder();
   if (!encoder) {
-    toast('Nessun encoder disponibile', 'err');
+    toast('No encoder available', 'err');
     return;
   }
   if (encoder.hardware && !compressWorkingSet().has(encoder.id)) {
-    toast('Encoder GPU non disponibile: esegui una nuova scansione', 'err');
+    toast('GPU encoder unavailable: run a new scan', 'err');
     return;
   }
   if ($('compressQualityMode').value === 'twopass' && !encoder.twoPass) {
-    toast('Questo encoder non supporta il 2-pass', 'err');
+    toast('This encoder does not support two-pass', 'err');
     return;
   }
 
@@ -3912,7 +4316,7 @@ async function startCompress() {
   $('compressBar').style.width = '0%';
   $('compressResult').hidden = true;
   $('compressResultText').hidden = true;
-  $('compressStatus').textContent = 'Preparazione della compressione...';
+  $('compressStatus').textContent = 'Preparing compression...';
   setCompressBusy(true);
   updateCompressSummary();
 
@@ -3924,7 +4328,7 @@ async function startCompress() {
     });
     if (result && result.canceled) {
       $('compressBar').style.width = '0%';
-      $('compressStatus').textContent = 'Compressione annullata.';
+      $('compressStatus').textContent = 'Compression cancelled.';
     } else if (result && result.ok) {
       showCompressResult(result);
     }
@@ -3932,9 +4336,9 @@ async function startCompress() {
     const message = errorMessage(error);
     if (/annullata/i.test(message)) {
       $('compressBar').style.width = '0%';
-      $('compressStatus').textContent = 'Compressione annullata.';
+      $('compressStatus').textContent = 'Compression cancelled.';
     } else {
-      $('compressStatus').textContent = `Errore: ${message}`;
+      $('compressStatus').textContent = `Error: ${message}`;
       toast(message, 'err');
     }
   } finally {
@@ -3950,12 +4354,12 @@ function showCompressResult(result) {
   $('compressOutput').value = result.path;
   const saved = result.saved != null ? ` · -${Math.round(result.saved * 100)}%` : '';
   const encoderLabel = result.encoderLabel || result.encoder || '';
-  $('compressStatus').textContent = `Completato: ${result.name} (${fmtBytes(result.size)}${saved})`;
+  $('compressStatus').textContent = `Completed: ${result.name} (${fmtBytes(result.size)}${saved})`;
   const details = [
     `${result.hardware ? 'GPU' : 'CPU'} · ${encoderLabel}`,
     `decodifica ${result.hwaccel ? (result.hwaccelMode === 'cuda' ? 'GPU (CUDA)' : 'GPU') : 'software'}`,
-    `durata ${fmtTime(result.duration)}`,
-    `${result.audioTracks} audio${result.mergedAudio ? ' (mixati)' : ''} · ${result.subtitleTracks} sottotitoli`,
+    `duration ${fmtTime(result.duration)}`,
+    `${result.audioTracks} audio${result.mergedAudio ? ' (mixed)' : ''} · ${result.subtitleTracks} subtitles`,
   ];
   if (result.sourceSize) details.push(`originale ${fmtBytes(result.sourceSize)}`);
   if (result.warnings && result.warnings.length) details.push(...result.warnings);
@@ -3968,7 +4372,7 @@ function showCompressResult(result) {
 
 async function cancelCompress() {
   if (!state.compressBusy) return;
-  $('compressStatus').textContent = 'Annullamento in corso...';
+  $('compressStatus').textContent = 'Cancelling...';
   try {
     await api.cancelCompress();
   } catch (error) {
@@ -3982,7 +4386,7 @@ function onCompressProgress(progress) {
     state.compressPercent = clamp(Number(progress.progress) * 100, 0, 100);
     $('compressBar').style.width = `${state.compressPercent.toFixed(1)}%`;
   }
-  const parts = [`Compressione ${state.compressPercent.toFixed(0)}%`];
+  const parts = [`Compression ${state.compressPercent.toFixed(0)}%`];
   if (progress && progress.pass === 2) parts.push('passata 2/2');
   if (progress && progress.seconds) parts.push(`${fmtTime(progress.seconds)} / ${fmtTime(progress.total)}`);
   if (progress && progress.speed && progress.speed !== 'N/A') parts.push(progress.speed);
@@ -4013,12 +4417,12 @@ async function pickCompressSource() {
 async function detectCompressCrop() {
   const source = state.compressSource;
   if (!source) {
-    toast('Scegli prima un video', 'err');
+    toast('Choose a video first', 'err');
     return;
   }
   const button = $('btnDetectCrop');
   if (button) button.disabled = true;
-  toast('Analisi delle bande nere...');
+  toast('Analyzing black bars...');
   try {
     const video = compressSourceVideo();
     const result = await api.detectCrop(
@@ -4037,7 +4441,7 @@ async function detectCompressCrop() {
     markCompressCustom();
     updateCompressSummary();
     if (!values.some(Boolean)) {
-      toast('Nessuna banda nera rilevata');
+      toast('No black bars detected');
     } else {
       toast(`Bande nere: ${values[2]}/${values[3]} laterali, ${values[0]}/${values[1]} verticali`);
     }
@@ -4051,9 +4455,9 @@ async function detectCompressCrop() {
 /* ============================== INFO ============================== */
 
 const DEP_INFO = {
-  ytdlp: { label: 'yt-dlp', description: 'download da link' },
-  ffmpeg: { label: 'FFmpeg', description: 'encoding e conversione' },
-  ffprobe: { label: 'ffprobe', description: 'analisi dei media' },
+  ytdlp: { label: 'yt-dlp', description: 'link downloads' },
+  ffmpeg: { label: 'FFmpeg', description: 'encoding and conversion' },
+  ffprobe: { label: 'ffprobe', description: 'media analysis' },
 };
 
 function bindInfoEvents() {
@@ -4121,7 +4525,7 @@ function renderInfoSystem() {
   if (!box) return;
   const info = state.info;
   if (!info) {
-    box.innerHTML = `<div class="muted">${state.infoLoading ? 'Lettura delle informazioni di sistema...' : 'Informazioni non disponibili.'}</div>`;
+    box.innerHTML = `<div class="muted">${state.infoLoading ? 'Reading system information...' : 'Information not available.'}</div>`;
     return;
   }
   const system = info.system || {};
@@ -4130,17 +4534,17 @@ function renderInfoSystem() {
   const badge = $('infoAppBadge');
   if (badge) badge.textContent = `v${versions.app || '?'}`;
 
-  const memory = (bytes) => (Number(bytes) ? fmtBytes(bytes) : 'n/d');
+  const memory = (bytes) => (Number(bytes) ? fmtBytes(bytes) : 'n/a');
   const rows = [
-    ['Applicazione', `MoliDowloader ${versions.app || ''}`.trim()],
-    ['Sistema', `${system.type || system.platform || ''} ${system.release || ''} · ${system.arch || ''}`.trim()],
-    ['CPU', `${system.cpuModel || 'n/d'} · ${system.cpuCores || 0} thread`],
-    ['RAM', `${memory(system.totalMemory)} totali · ${memory(system.freeMemory)} liberi`],
+    ['Application', `MoliDowloader ${versions.app || ''}`.trim()],
+    ['System', `${system.type || system.platform || ''} ${system.release || ''} · ${system.arch || ''}`.trim()],
+    ['CPU', `${system.cpuModel || 'n/a'} · ${system.cpuCores || 0} thread`],
+    ['RAM', `${memory(system.totalMemory)} total · ${memory(system.freeMemory)} free`],
     ['Uptime', fmtUptime(system.uptime || 0)],
-    ['Electron', versions.electron || 'n/d'],
-    ['Chromium', versions.chrome || 'n/d'],
-    ['Node', versions.node || 'n/d'],
-    ['Cartella dati', paths.userData || 'n/d'],
+    ['Electron', versions.electron || 'n/a'],
+    ['Chromium', versions.chrome || 'n/a'],
+    ['Node', versions.node || 'n/a'],
+    ['Data folder', paths.userData || 'n/a'],
   ];
   box.innerHTML = rows
     .map(
@@ -4175,12 +4579,12 @@ function renderInfoDeps() {
           ? '<span class="dep-badge ok">ok</span>'
           : '<span class="dep-badge missing">mancante</span>';
       const version = entry.path
-        ? shortVersion(entry.version) || 'versione sconosciuta'
-        : 'non installato';
-      const source = entry.path ? (entry.source === 'system' ? 'sistema' : 'incluso') : '';
+        ? shortVersion(entry.version) || 'unknown version'
+        : 'not installed';
+      const source = entry.path ? (entry.source === 'system' ? 'system' : 'bundled') : '';
       const meta = [info.description, version, source, entry.path || ''].filter(Boolean).join(' · ');
       const action = `<button class="btn-sm" data-dep-action="${key}" ${downloading ? 'disabled' : ''}>${
-        entry.path ? 'Aggiorna' : 'Scarica'
+        entry.path ? 'Update' : 'Download'
       }</button>`;
       return `<div class="dep-row">
         <div class="dep-main">
@@ -4198,7 +4602,7 @@ function renderInfoDeps() {
     if (downloading) {
       status.textContent = `${state.depsMessage || `Scarico ${DEP_INFO[downloading].label}...`} ${state.depsPercent ? `· ${state.depsPercent}%` : ''}`;
     } else {
-      status.textContent = state.depsMessage || 'yt-dlp, FFmpeg e ffprobe vengono verificati all’avvio.';
+      status.textContent = state.depsMessage || 'yt-dlp, FFmpeg, and ffprobe are checked at startup.';
     }
   }
   if (bar) bar.style.width = `${downloading ? state.depsPercent : 0}%`;
@@ -4212,14 +4616,14 @@ function renderInfoGpu() {
 
   if (state.infoScanning || state.compressScanning) {
     status.className = 'gpu-scan-status busy';
-    status.textContent = 'Test degli encoder hardware in corso...';
+    status.textContent = 'Testing hardware encoders...';
     list.innerHTML = '';
     chips.innerHTML = '';
     return;
   }
   if (state.compressScanError) {
     status.className = 'gpu-scan-status warn';
-    status.textContent = `Scansione non riuscita: ${state.compressScanError}`;
+    status.textContent = `Scan failed: ${state.compressScanError}`;
     list.innerHTML = '';
     chips.innerHTML = '';
     return;
@@ -4227,7 +4631,7 @@ function renderInfoGpu() {
   const system = state.compressSystem;
   if (!system) {
     status.className = 'gpu-scan-status';
-    status.textContent = 'Scansione non ancora eseguita.';
+    status.textContent = 'No scan yet.';
     list.innerHTML = '';
     chips.innerHTML = '';
     return;
@@ -4238,9 +4642,9 @@ function renderInfoGpu() {
   status.className = `gpu-scan-status ${gpus.length ? 'ok' : 'warn'}`;
   status.textContent = gpus.length
     ? `${gpus.length} GPU rilevata${gpus.length > 1 ? 'e' : ''} · ${
-        working.length ? `${working.length} encoder hardware verificati` : 'nessun encoder hardware verificato'
+        working.length ? `${working.length} hardware encoders verified` : 'no hardware encoder verified'
       }`
-    : 'Nessuna GPU rilevata.';
+    : 'No GPU detected.';
 
   list.innerHTML = gpus.length
     ? gpus
@@ -4251,7 +4655,7 @@ function renderInfoGpu() {
           </div>`,
         )
         .join('')
-    : '<div class="muted">Nessuna scheda video dedicata rilevata.</div>';
+    : '<div class="muted">No dedicated GPU detected.</div>';
 
   const workingChips = working.map((id) => {
     const encoder = compressCatalogEncoder(id);
@@ -4285,25 +4689,25 @@ function renderInfoRecommended() {
   const badge = $('infoRecommendedBadge');
   if (!box) return;
   if (!state.compressCatalog) {
-    box.innerHTML = '<div class="muted">Catalogo encoder non disponibile.</div>';
+    box.innerHTML = '<div class="muted">Catalogo encoder not available.</div>';
     return;
   }
   if (!state.compressSystem) {
-    box.innerHTML = '<div class="muted">Premi “Scansiona” per ricevere impostazioni adatte a questa macchina.</div>';
+    box.innerHTML = '<div class="muted">Press "Scan" to get settings suitable for this machine.</div>';
     if (badge) badge.textContent = 'auto';
     return;
   }
   const config = infoRecommendedConfig();
   const encoder = config.encoder;
   if (badge) badge.textContent = config.hardware ? 'gpu' : 'cpu';
-  const qualityLabel = encoder && encoder.quality ? encoder.quality.label : 'Qualità';
+  const qualityLabel = encoder && encoder.quality ? encoder.quality.label : 'Quality';
   const rows = [
     ['Encoder', encoder ? encoder.short : config.encoderId],
     [qualityLabel, String(config.quality)],
     ['Preset', config.preset || 'auto'],
-    ['Contenitore', 'MP4 (H.264/HEVC)'],
-    ['Risoluzione', '1080p · niente upscale'],
-    ['Decodifica', config.hardware ? 'GPU con fallback automatico' : 'Software'],
+    ['Container', 'MP4 (H.264/HEVC)'],
+    ['Resolution', '1080p · niente upscale'],
+    ['Decodifica', config.hardware ? 'GPU with automatic fallback' : 'Software'],
     ['Audio', 'AAC 128 kbps'],
   ];
   box.innerHTML = rows
@@ -4331,7 +4735,7 @@ async function applyInfoRecommended() {
   if (!state.compressCatalog) await loadCompressCatalog();
   const config = infoRecommendedConfig();
   if (!config.encoder) {
-    toast('Nessun encoder disponibile', 'err');
+    toast('No encoder available', 'err');
     return;
   }
   switchView('compress');
@@ -4352,7 +4756,7 @@ async function applyInfoRecommended() {
   markCompressCustom();
   applyCompressOutputExtension();
   updateCompressSummary();
-  toast('Impostazioni consigliate applicate');
+  toast('Recommended settings applied');
 }
 
 function onDepsProgress(progress) {
@@ -4384,11 +4788,11 @@ async function downloadDependency(tool) {
       state.defaults = { ...(state.defaults || {}), binaries: result.binaries };
       renderEngineInfo(state.defaults);
     }
-    state.depsMessage = `${DEP_INFO[key].label} pronto.`;
+    state.depsMessage = `${DEP_INFO[key].label} ready.`;
     toast(`${DEP_INFO[key].label} installato`);
     await refreshInfo();
   } catch (error) {
-    state.depsMessage = `Download non riuscito: ${errorMessage(error)}`;
+    state.depsMessage = `Download failed: ${errorMessage(error)}`;
     toast(`Download ${DEP_INFO[key].label}: ${errorMessage(error)}`, 'err');
   } finally {
     state.depsDownloading = null;
@@ -4408,7 +4812,7 @@ function onUpdateStatus(info) {
     info.version &&
     (!previous || previous.state !== 'downloaded' || previous.version !== info.version)
   ) {
-    toast(`Aggiornamento ${info.version} pronto: riavvia per installarlo`);
+    toast(`Update ${info.version} ready: restart to install it`);
   }
 }
 
@@ -4430,13 +4834,13 @@ function renderUpdate() {
   const current = info.currentVersion || (state.info && state.info.versions && state.info.versions.app) || '';
   const percent = clamp(Number(info.percent) || 0, 0, 100);
   const busy = ['checking', 'downloading', 'installing'].includes(info.state);
-  let text = 'Controllo automatico ogni 6 ore.';
+  let text = 'Automatic check every 6 hours.';
   let label = 'auto';
   let badgeClass = 'panel-badge';
 
   switch (info.state) {
     case 'checking':
-      text = 'Controllo degli aggiornamenti...';
+      text = 'Checking for updates...';
       label = 'check';
       break;
     case 'available':
@@ -4450,12 +4854,12 @@ function renderUpdate() {
       label = `${Math.round(percent)}%`;
       break;
     case 'downloaded':
-      text = `v${info.version || '?'} pronta. Si installa alla chiusura o subito.`;
-      label = 'pronta';
+      text = `v${info.version || '?'} ready. It installs on exit or immediately.`;
+      label = 'ready';
       badgeClass = 'panel-badge new';
       break;
     case 'installing':
-      text = 'Riavvio per installare l’aggiornamento...';
+      text = 'Restarting to install the update...';
       label = 'installo';
       break;
     case 'current': {
@@ -4465,12 +4869,12 @@ function renderUpdate() {
       break;
     }
     case 'error':
-      text = `Controllo non riuscito: ${info.message || 'errore di rete'}`;
-      label = 'errore';
+      text = `Check failed: ${info.message || 'network error'}`;
+      label = 'error';
       badgeClass = 'panel-badge err';
       break;
     case 'dev':
-      text = info.message || 'Gli aggiornamenti si verificano nell’app installata.';
+      text = info.message || 'Updates are checked in the installed app.';
       label = 'dev';
       break;
     default:
@@ -4500,7 +4904,7 @@ async function installUpdate() {
   if (!api) return;
   try {
     const result = await api.installUpdate();
-    if (!result || !result.ok) toast('Nessun aggiornamento pronto da installare', 'err');
+    if (!result || !result.ok) toast('No update ready to install', 'err');
   } catch (error) {
     toast(errorMessage(error), 'err');
   }
@@ -4534,7 +4938,7 @@ function bindCompressEvents() {
         updateCompressEncoderUi({ resetQuality: false });
       } else {
         $('forceGpu').checked = false;
-        toast('Nessun encoder GPU disponibile', 'err');
+        toast('No GPU encoder available', 'err');
       }
     } else if (currentCompressEncoder() && currentCompressEncoder().hardware) {
       const fallback = compressFallbackEncoder(compressContainer(), 'libx265');

@@ -10,6 +10,10 @@ const { spawn, execFile } = require('child_process');
 const { EventEmitter } = require('events');
 const binaries = require('./binaries');
 const resolver = require('./resolver');
+const spotify = require('./spotify');
+const twitch = require('./twitch');
+const links = require('../shared/links');
+const errors = require('../shared/errors');
 const prefs = require('./settings');
 
 const jobs = new Map();
@@ -71,7 +75,13 @@ function publicJob(job) {
     size: job.size,
     files: job.files,
     error: job.error,
+    errorInfo: job.errorInfo || null,
     note: job.note || '',
+    playlist: job.playlist || '',
+    playlistTotal: job.playlistTotal || 0,
+    playlistKind: job.playlistKind || '',
+    linkKind: job.linkKind || '',
+    source: job.source || '',
     resolvedFrom: job.resolvedFrom || '',
     createdAt: job.createdAt,
     startedAt: job.startedAt,
@@ -129,7 +139,9 @@ function safeFileName(value) {
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/[. ]+$/g, '');
-  return cleaned.slice(0, 120);
+  // Windows ha un limite di percorso: un nome lungo quanto una sinossi fa
+  // fallire la scrittura dei frammenti (ENOENT ...part-Frag).
+  return cleaned.slice(0, 90).replace(/[. ]+$/g, '');
 }
 
 /** Titoli dei player che non dicono nulla sul video: meglio il link. */
@@ -151,7 +163,7 @@ function titleFromUrl(rawUrl) {
     const words = cleaned.split(' ').map((word) => {
       const lower = word.toLowerCase();
       if (['ita', 'sub', 'hd', '4k', 'ova'].includes(lower)) return lower.toUpperCase();
-      if (lower === 'ep' || lower === 'episode') return 'Episodio';
+      if (lower === 'ep' || lower === 'episode') return 'Episode';
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     });
     return safeFileName(words.join(' '));
@@ -170,15 +182,46 @@ function parseClock(clock) {
 function handleLine(job, rawLine) {
   const line = rawLine.replace(/\x1b\[[0-9;]*m/g, '').trimEnd();
   if (!line) return;
-  addLog(job, line);
+  // L'avanzamento arriva molte volte al secondo: nel log resta solo cio` che
+  // serve a capire un errore (titoli, file, messaggi del sito).
+  if (!line.startsWith('DLPROGRESS|')) addLog(job, line);
 
   if (line.startsWith('TITLE|')) {
     const title = line.slice(6).trim();
     // Per i link dei player yt-dlp vede solo il nome della playlist: resta il
-    // titolo letto dalla pagina del sito.
-    if (title && (!job.resolvedFrom || !usableTitle(job.title))) job.title = title;
+    // titolo letto dalla pagina del sito. I brani Spotify tengono il nome
+    // pulito "Artista - Titolo" invece del titolo del video trovato.
+    if (title && !job.lockedTitle && (!job.resolvedFrom || !usableTitle(job.title))) job.title = title;
     if (usableTitle(job.title)) job.artifactPrefix = usableTitle(job.title);
     emit(job, true);
+    return;
+  }
+
+  if (line.startsWith('PLAYLIST|')) {
+    const [, nameRaw, totalRaw] = line.split('|');
+    const name = String(nameRaw || '').trim();
+    const total = parseInt(totalRaw, 10);
+    // Solo una playlist vera: le ricerche (ytsearch1) dichiarano un titolo di
+    // playlist con una sola voce e non devono diventare un gruppo in coda.
+    if (name && Number.isFinite(total) && total > 1 && !/^(?:NA|None|Unknown)$/i.test(name)) {
+      job.playlist = safeFileName(name).slice(0, 90) || job.playlist;
+      job.playlistTotal = total;
+      job.playlistKind = job.playlistKind || 'link';
+      job.note = `Playlist detected · ${total} items`;
+      emit(job, true);
+    }
+    return;
+  }
+
+  if (line.startsWith('ITEM|')) {
+    const [, indexRaw, totalRaw, titleRaw] = line.split('|');
+    const index = parseInt(indexRaw, 10);
+    const total = parseInt(totalRaw, 10);
+    if (Number.isFinite(index) && Number.isFinite(total) && total > 1) {
+      const label = job.playlist ? 'Playlist' : 'Item';
+      job.note = `${label} ${index}/${total}${titleRaw ? ` · ${titleRaw.trim().slice(0, 80)}` : ''}`;
+      emit(job, true);
+    }
     return;
   }
 
@@ -246,12 +289,24 @@ function buildArgs(url, settings, ytdlpPath, ffmpegDir, jsRuntime, extra = {}) {
     'download:DLPROGRESS|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._total_bytes_estimate_str)s',
     '--no-simulate',
     '--print',
+    'before_dl:PLAYLIST|%(playlist_title)s|%(n_entries)s',
+    '--print',
+    'before_dl:ITEM|%(playlist_index)s|%(n_entries)s|%(title)s',
+    '--print',
     'before_dl:TITLE|%(title)s',
     '--print',
     'after_move:FILE|%(filepath)s',
     '--no-mtime',
+    '--trim-filenames',
+    '90',
+    '--windows-filenames',
+    // `-o` deve restare relativo: con un percorso assoluto yt-dlp ignora
+    // `--paths temp:`, lasciando i frammenti .part nella cartella finale.
+    '--paths',
+    `home:${outputDir}`,
+    ...(extra.tempDir ? ['--paths', `temp:${extra.tempDir}`] : []),
     '-o',
-    path.join(outputDir, template),
+    template,
     '--retries',
     String(retries),
     '--fragment-retries',
@@ -267,10 +322,6 @@ function buildArgs(url, settings, ytdlpPath, ffmpegDir, jsRuntime, extra = {}) {
     '--socket-timeout',
     '30',
   ];
-  // File temporanei (.part, .ytdl, frammenti) fuori dalla cartella di output:
-  // se il download viene annullato si eliminano senza lasciare residui.
-  if (extra.tempDir) args.push('--paths', `temp:${extra.tempDir}`);
-
   if (ffmpegDir) {
     args.push('--ffmpeg-location', ffmpegDir);
   }
@@ -372,6 +423,37 @@ function killTree(proc) {
   }
 }
 
+/** True se il file contiene una traccia video (non solo audio). */
+function probeHasVideo(filePath, ffprobePath) {
+  return new Promise((resolve) => {
+    if (!filePath || !ffprobePath) {
+      resolve(true);
+      return;
+    }
+    execFile(
+      ffprobePath,
+      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', filePath],
+      { windowsHide: true, timeout: 20000 },
+      (error, stdout) => {
+        if (error) {
+          resolve(true);
+          return;
+        }
+        resolve(/video/i.test(String(stdout || '')));
+      },
+    );
+  });
+}
+
+function isTwitchUrl(rawUrl) {
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    return host === 'twitch.tv' || host.endsWith('.twitch.tv');
+  } catch {
+    return false;
+  }
+}
+
 /** Esegue yt-dlp e restituisce il codice di uscita. */
 function runYtDlp(job, executable, args) {
   return new Promise((resolve, reject) => {
@@ -430,37 +512,62 @@ async function resolveLink(job) {
   return resolved;
 }
 
-/** Elimina i .part/.ytdl rimasti nella cartella di output dopo un annullamento. */
-function removeJobLeftovers(job, tempDir) {
-  if (tempDir) {
-    try {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    } catch {
-      /* file già chiusi o cartella rimossa */
-    }
+function isPartialFile(name) {
+  return /\.(?:part|ytdl|temp)(?:$|[.-])/i.test(name) || /\.part-Frag\d+/i.test(name);
+}
+
+/** True se il file appartiene a un altro download ancora in corso. */
+function ownedByAnotherJob(job, name) {
+  for (const [id, other] of jobs) {
+    if (id === job.id || !['queued', 'running'].includes(other.status)) continue;
+    const stem = String(other.artifactPrefix || '').slice(0, 24);
+    if (!stem) return true; // nessun indizio: non rischiare di rompere l'altro job
+    if (name.startsWith(stem)) return true;
   }
-  const prefix = String(job.artifactPrefix || '');
+  return false;
+}
+
+/** Elimina i .part/.ytdl/.temp rimasti dopo un annullamento o un errore. */
+async function removeJobLeftovers(job, tempDir) {
   const outputDir = String((job.settings && job.settings.output_dir) || '').trim();
-  if (!prefix || !outputDir) return;
-  let names = [];
-  try {
-    names = fs.readdirSync(outputDir);
-  } catch {
-    return;
-  }
-  for (const name of names) {
-    if (!name.startsWith(prefix)) continue;
-    if (!/\.(?:part|ytdl|temp)(?:$|[.-])/i.test(name) && !/\.part-Frag\d+/i.test(name)) continue;
-    const file = path.join(outputDir, name);
+  const prefix = String(job.artifactPrefix || '');
+  // yt-dlp puo` aver troncato il nome a 90 caratteri: confronta la parte
+  // iniziale, che resta identica anche per i file .part-Frag.
+  const stem = prefix.slice(0, 24);
+
+  // Due passate: dopo un kill i frammenti possono comparire con qualche
+  // centinaio di millisecondi di ritardo rispetto alla chiusura del processo.
+  for (let pass = 0; pass < 2; pass += 1) {
+    if (pass > 0) await new Promise((resolve) => setTimeout(resolve, 700));
+    if (tempDir) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        /* file già chiusi o cartella rimossa */
+      }
+    }
+    if (!outputDir) continue;
+    let names = [];
     try {
-      const stat = fs.statSync(file);
-      if (!stat.isFile()) continue;
-      // Non toccare file di altri download partiti prima di questo.
-      if (job.startedAt && stat.mtimeMs + 5000 < job.startedAt) continue;
-      fs.rmSync(file, { force: true });
-      addLog(job, `[app] Rimosso file parziale: ${name}`);
+      names = fs.readdirSync(outputDir);
     } catch {
-      /* file già rimosso dal processo */
+      continue;
+    }
+    for (const name of names) {
+      if (!isPartialFile(name)) continue;
+      if (stem && !name.startsWith(stem) && !/\.part-Frag\d+/i.test(name)) continue;
+      if (ownedByAnotherJob(job, name)) continue;
+      const file = path.join(outputDir, name);
+      try {
+        const stat = fs.statSync(file);
+        if (!stat.isFile()) continue;
+        // Non toccare file creati da download precedenti.
+        if (job.startedAt && stat.mtimeMs + 5000 < job.startedAt) continue;
+        fs.rmSync(file, { force: true });
+        addLog(job, `[app] Removed partial file: ${name}`);
+      } catch {
+        /* file già rimosso dal processo */
+      }
     }
   }
 }
@@ -470,6 +577,8 @@ async function runJob(job) {
   job.status = 'running';
   job.startedAt = Date.now();
   job.note = '';
+  job.error = '';
+  job.errorInfo = null;
   let tempDir = '';
   emit(job, true);
 
@@ -479,16 +588,17 @@ async function runJob(job) {
     const current = binaries.getBinaries();
     const ytdlp = current.ytdlp;
     if (!ytdlp.path) {
-      throw new Error('yt-dlp non trovato. Aggiorna i binari dalle impostazioni.');
+      throw new Error('yt-dlp not found. Update the binaries from Settings.');
     }
 
     const settings = job.settings || {};
-    let targetUrl = job.url;
-    let extra = {};
+    let targetUrl = job.target || job.url;
+    // I brani Spotify hanno gia` un titolo pulito: va usato anche come nome file.
+    let extra = job.lockedTitle && job.title ? { title: job.title } : {};
     let resolvedOnce = false;
 
     if (resolver.isSupported(job.url)) {
-      addLog(job, `[app] Risoluzione del link di ${new URL(job.url).hostname}`);
+      addLog(job, `[app] Resolving ${new URL(job.url).hostname} link`);
       const resolved = await resolveLink(job);
       targetUrl = resolved.url;
       extra = { title: resolved.title, headers: resolved.headers };
@@ -498,8 +608,9 @@ async function runJob(job) {
     // Se il download fallisce, l'app riprova da sola con altre impostazioni:
     // prima i cookie del browser (TikTok, Instagram, siti con accesso),
     // poi la ricerca del vero flusso dentro la pagina (player nascosti).
-    const strategies = [{ label: 'impostazioni scelte', cookies: '' }];
+    const strategies = [{ label: 'selected settings', cookies: '' }];
     const automatic = settings.auto_retry !== false;
+    const twitchVod = twitch.videoId(job.url);
     const isTikTok = (() => {
       try {
         const host = new URL(job.url).hostname.toLowerCase();
@@ -512,20 +623,29 @@ async function runJob(job) {
       // TikTok: il player pubblico dà un solo mp4 con il titolo giusto, mentre
       // yt-dlp sui link embed produce file doppi e nomi generici.
       if (isTikTok) {
-        strategies.unshift({ label: 'player TikTok', resolve: true });
+        strategies.unshift({ label: 'TikTok player', resolve: true });
         resolvedOnce = true;
+      }
+      // Twitch: per alcune VOD il manifest dichiara la sola traccia audio. La
+      // rendition chunked dello stesso CDN contiene video e audio: la passiamo
+      // direttamente a yt-dlp prima di ogni altro tentativo.
+      if (twitchVod && settings.format !== 'audio') {
+        strategies.unshift({ label: 'Twitch full video stream', twitch: true });
       }
       const cookieSources = settings.cookie_fallback === false ? [] : installedBrowsers();
       const chosen = String(settings.cookies_from || '').trim();
       for (const browser of cookieSources) {
         if (browser === chosen) continue;
-        strategies.push({ label: `cookie di ${browser}`, cookies: browser });
+        strategies.push({ label: `cookies from ${browser}`, cookies: browser });
         if (strategies.filter((strategy) => strategy.cookies).length >= 2) break;
       }
-      if (!resolvedOnce) strategies.push({ label: 'ricerca del flusso nella pagina', resolve: true });
+      if (!resolvedOnce) strategies.push({ label: 'searching for the stream in the page', resolve: true });
     }
 
     let failure = '';
+    // Il primo errore di yt-dlp e` il piu` preciso: i tentativi successivi
+    // (cookie, ricerca del flusso) aggiungono messaggi generici del resolver.
+    let firstFailure = '';
     for (let index = 0; index < strategies.length; index += 1) {
       if (job.cancelled) break;
       const strategy = strategies[index];
@@ -537,16 +657,38 @@ async function runJob(job) {
         job.progress = 0;
         job.speed = '';
         job.eta = '';
-        addLog(job, `[app] Nuovo tentativo: ${strategy.label}`);
+        addLog(job, `[app] Retrying: ${strategy.label}`);
         emit(job, true);
       }
       if (strategy.cookies) attemptExtra = { ...attemptExtra, cookies: strategy.cookies };
+
+      if (strategy.twitch) {
+        try {
+          const found = await twitch.resolveVod(job.url, (line) => addLog(job, `[twitch] ${line}`), {
+            maxHeight: parseInt(settings.quality, 10) || 0,
+          });
+          attemptUrl = found.url;
+          attemptExtra = {
+            ...attemptExtra,
+            title: found.title || attemptExtra.title || titleFromUrl(job.url),
+            headers: { ...(attemptExtra.headers || {}), ...(found.headers || {}) },
+          };
+          if (found.title) job.title = found.title;
+          job.resolvedFrom = job.url;
+          addLog(job, '[app] Twitch stream found: video and audio in one playlist.');
+          emit(job, true);
+        } catch (error) {
+          failure = error && error.message ? error.message : String(error);
+          addLog(job, `[twitch] ${failure}`);
+          continue;
+        }
+      }
 
       if (strategy.resolve) {
         try {
           const found = await resolver.resolveAuto(job.url, (line) => addLog(job, `[resolve] ${line}`));
           if (!found || !found.url) {
-            failure = 'Nessun video trovato nella pagina: il sito non espone un flusso scaricabile.';
+            failure = 'No video found on the page: the site does not expose a downloadable stream.';
             addLog(job, `[app] ${failure}`);
             continue;
           }
@@ -557,11 +699,11 @@ async function runJob(job) {
           };
           if (found.title) job.title = found.title;
           job.resolvedFrom = job.url;
-          addLog(job, `[app] Flusso trovato (${new URL(found.url).hostname}).`);
+          addLog(job, `[app] Stream found (${new URL(found.url).hostname}).`);
           emit(job, true);
         } catch (error) {
           failure = error && error.message ? error.message : String(error);
-          addLog(job, `[app] Ricerca del flusso non riuscita: ${failure}`);
+          addLog(job, `[app] Stream search failed: ${failure}`);
           continue;
         }
       }
@@ -578,8 +720,8 @@ async function runJob(job) {
       });
       addLog(
         job,
-        `[app] yt-dlp avviato (${args.includes('--no-playlist') ? 'video singolo' : 'playlist'})${
-          strategy.cookies ? ` · cookie di ${strategy.cookies}` : ''
+        `[app] yt-dlp started (${args.includes('--no-playlist') ? 'single video' : 'playlist'})${
+          strategy.cookies ? ` · cookies from ${strategy.cookies}` : ''
         }`,
       );
       const logStart = job.log.length;
@@ -596,21 +738,54 @@ async function runJob(job) {
         break;
       }
       if (code === 0) {
-        job.status = 'done';
-        job.progress = 100;
-        job.eta = '';
-        job.note = '';
         if (!job.files.length) {
           for (const line of job.log) {
             const file = line.match(/FILE\|(.+)$/);
             if (file) addFile(job, file[1]);
           }
         }
+
+        // Alcuni siti (Twitch compreso) servono per qualche ora una VOD con
+        // la sola traccia audio, ma yt-dlp la salva comunque come .mp4.
+        if (settings.format !== 'audio' && job.files.length) {
+          const ffprobePath = (binaries.getBinariesFast().ffprobe || {}).path;
+          let anyVideo = false;
+          for (const file of job.files) {
+            if (await probeHasVideo(file.path, ffprobePath)) {
+              anyVideo = true;
+              break;
+            }
+          }
+          if (!anyVideo) {
+            for (const file of job.files) {
+              try {
+                fs.rmSync(file.path, { force: true });
+              } catch {
+                /* file gia` rimosso */
+              }
+            }
+            job.files = [];
+            failure =
+              twitchVod || isTwitchUrl(job.url)
+                ? 'Twitch is still processing this video: only audio is available right now. Try again in a few minutes.'
+                : 'The site only returned an audio stream, so there is no video to save.';
+            addLog(job, `[app] ${failure}`);
+            // Spotify e` sempre audio: per gli altri si prova la strategia dopo.
+            if (job.source === 'spotify') break;
+            continue;
+          }
+        }
+
+        job.status = 'done';
+        job.progress = 100;
+        job.eta = '';
+        job.note = '';
         break;
       }
 
-      failure = errorFromLog(job, logStart) || `yt-dlp è terminato con codice ${code}`;
-      addLog(job, `[app] Tentativo non riuscito: ${failure}`);
+      failure = errorFromLog(job, logStart) || `yt-dlp exited with code ${code}`;
+      if (!firstFailure) firstFailure = failure;
+      addLog(job, `[app] Attempt failed: ${failure}`);
     }
 
     if (job.cancelled) {
@@ -618,21 +793,25 @@ async function runJob(job) {
     } else if (job.status !== 'done') {
       job.status = 'error';
       job.note = '';
-      job.error = failure || 'Download non riuscito.';
+      let message = firstFailure || failure || 'Download failed.';
       // I link dei player scadono: il messaggio aiuta a rifare la risoluzione.
-      if (job.resolvedFrom && /403|401|forbidden|expired|token/i.test(`${job.error} ${job.log.join(' ')}`)) {
-        job.error = `${job.error} — Il link del player potrebbe essere scaduto: riprova a risolverlo dal sito.`;
+      if (job.resolvedFrom && /403|401|forbidden|expired|token/i.test(`${message} ${job.log.join(' ')}`)) {
+        message = `${message} — The player link may have expired: try resolving it from the site again.`;
       }
+      job.error = message;
+      job.errorInfo = errors.explain(message, { url: job.url, title: job.title });
     }
   } catch (error) {
     job.status = job.cancelled ? 'cancelled' : 'error';
     job.error = job.error || (error && error.message ? error.message : String(error));
+    job.errorInfo = job.errorInfo || errors.explain(job.error, { url: job.url, title: job.title });
     job.note = '';
     addLog(job, `[app error] ${job.error}`);
   } finally {
     job.proc = null;
-    if (job.cancelled) removeJobLeftovers(job, tempDir);
-    else if (tempDir) {
+    if (job.status !== 'done') {
+      await removeJobLeftovers(job, tempDir);
+    } else if (tempDir) {
       try {
         fs.rmSync(tempDir, { recursive: true, force: true });
       } catch {
@@ -655,7 +834,7 @@ function schedule() {
   }
 }
 
-function start(payload) {
+async function start(payload) {
   const urls = Array.isArray(payload && payload.urls) ? payload.urls : [];
   const settings = (payload && payload.settings) || {};
   const valid = [];
@@ -672,16 +851,17 @@ function start(payload) {
     }
   }
 
-  if (!valid.length) throw new Error('Inserisci almeno un link valido (http/https).');
-  if (valid.length > 20) throw new Error('Massimo 20 link per volta.');
+  if (!valid.length) throw new Error('Enter at least one valid link (http/https).');
+  if (valid.length > 20) throw new Error('Maximum 20 links at a time.');
 
   const created = [];
-  for (const url of valid) {
+  const createJob = (data) => {
     const job = {
       id: newId(),
-      url,
-      settings,
-      title: '',
+      url: data.url,
+      target: data.target || data.url,
+      settings: data.settings || settings,
+      title: data.title || '',
       status: 'queued',
       progress: 0,
       speed: '',
@@ -689,7 +869,14 @@ function start(payload) {
       size: '',
       files: [],
       error: '',
-      note: '',
+      errorInfo: null,
+      note: data.note || '',
+      playlist: data.playlist || '',
+      playlistTotal: data.playlistTotal || 0,
+      playlistKind: data.playlistKind || '',
+      linkKind: data.linkKind || '',
+      source: data.source || '',
+      lockedTitle: Boolean(data.lockedTitle),
       log: [],
       createdAt: Date.now(),
       startedAt: null,
@@ -702,15 +889,66 @@ function start(payload) {
     queue.push(job.id);
     created.push(publicJob(job));
     emit(job, true);
+  };
+
+  for (const url of valid) {
+    const info = links.info(url);
+    if (spotify.isSpotify(url)) {
+      let expanded = null;
+      try {
+        expanded = await spotify.expand(url);
+      } catch (error) {
+        throw new Error(error && error.message ? error.message : String(error));
+      }
+      // Un link diretto a una traccia non e` una playlist: una sola scheda in
+      // coda, senza il gruppo di playlist con dentro un elemento (1/1).
+      const single = expanded.type === 'track' || expanded.tracks.length === 1;
+      for (const track of expanded.tracks) {
+        if (created.length >= 200) break;
+        createJob({
+          url: track.url || url,
+          target: spotify.searchQuery(track),
+          title: [track.artists, track.title].filter(Boolean).join(' - '),
+          note: single ? 'Spotify · track' : `Playlist detected · ${expanded.tracks.length} tracks`,
+          playlist: single ? '' : expanded.title,
+          playlistKind: single ? '' : expanded.type,
+          playlistTotal: single ? 1 : expanded.tracks.length,
+          linkKind: expanded.type,
+          source: 'spotify',
+          settings: { ...settings, format: 'audio' },
+          lockedTitle: true,
+        });
+      }
+      continue;
+    }
+    // Un link che punta a una playlist va scaricato come playlist: con
+    // --no-playlist yt-dlp non troverebbe nulla da fare.
+    const playlistLink = info.kind === 'playlist';
+    const serviceLabel = info.serviceLabel || info.host || 'Site';
+    createJob({
+      url,
+      settings: playlistLink ? { ...settings, playlist: true } : settings,
+      note: playlistLink ? `Playlist detected · ${serviceLabel}` : '',
+      playlist: playlistLink ? info.playlistLabel || `${serviceLabel} playlist` : '',
+      playlistKind: playlistLink ? 'link' : '',
+      linkKind: info.kind,
+    });
   }
 
   schedule();
   return created;
 }
 
+/** Rilancia un download fallito con le stesse impostazioni del job. */
+function retry(id) {
+  const job = jobs.get(id);
+  if (!job) throw new Error('Download not found');
+  return start({ urls: [job.url], settings: job.settings || {} });
+}
+
 function cancel(id) {
   const job = jobs.get(id);
-  if (!job) throw new Error('Download non trovato');
+  if (!job) throw new Error('Download not found');
   if (!['queued', 'running'].includes(job.status)) return publicJob(job);
   job.cancelled = true;
   if (job.proc) killTree(job.proc);
@@ -747,6 +985,7 @@ function onUpdate(listener) {
 
 module.exports = {
   start,
+  retry,
   cancel,
   list,
   get,
