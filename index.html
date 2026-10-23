@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MoliDowloader — Scarica, monta e comprimi video</title>
-  <meta name="description" content="App desktop per Windows: scarica video e audio da YouTube, TikTok, Instagram e oltre 1000 siti, montali con un editor rapido e comprimili con FFmpeg e GPU.">
+  <title>MoliDowloader — Download, edit, and compress video</title>
+  <meta name="description" content="Windows desktop app: download video and audio from YouTube, TikTok, Instagram and 1000+ sites, edit them with a quick editor, and compress them with FFmpeg and your GPU.">
   <meta property="og:title" content="MoliDowloader">
-  <meta property="og:description" content="Downloader universale, editor rapido e compressore GPU in un'unica app per Windows.">
+  <meta property="og:description" content="Universal downloader, quick editor, and GPU compressor in one Windows app.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="assets/download.png">
   <link rel="icon" href="assets/icon.png">
@@ -16,18 +16,19 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <a class="skip" href="#download">Vai al download</a>
+  <a class="skip" href="#download">Skip to download</a>
 
   <header class="top">
     <div class="wrap top-inner">
-      <a class="brand" href="./" aria-label="MoliDowloader, home">
+      <a class="brand" href="./" aria-label="MoliDowloader home">
         <span class="mark" aria-hidden="true"></span>
         <span class="brand-name">MoliDowloader</span>
       </a>
-      <nav class="nav" aria-label="Principale">
-        <a href="#funzioni">Funzioni</a>
+      <nav class="nav" aria-label="Main">
+        <a href="https://molinays.github.io/">Home</a>
+        <a href="#features">Features</a>
         <a href="#editor">Editor</a>
-        <a href="#comprimi">Comprimi</a>
+        <a href="#compress">Compress</a>
         <a href="#faq">FAQ</a>
       </nav>
       <a class="btn btn-quiet btn-sm" href="https://github.com/Molinays/MoliDownloader/releases/latest" target="_blank" rel="noopener">GitHub</a>
@@ -38,35 +39,35 @@
     <section class="hero wrap">
       <div class="hero-copy">
         <p class="eyebrow">Windows 10 / 11 · 64-bit</p>
-        <h1>Scarica, monta, comprimi.<br><span class="dim">Un'app sola.</span></h1>
+        <h1>Download, edit, compress.<br><span class="dim">One app.</span></h1>
         <p class="lead">
-          MoliDowloader prende un link e ne fa un file: video fino al 4K o solo audio,
-          da YouTube, TikTok, Instagram e oltre 1000 siti. Poi lo taglia, lo colora,
-          lo comprime con la GPU.
+          MoliDowloader takes a link and turns it into a file: video up to 4K or audio only,
+          from YouTube, TikTok, Instagram, and 1000+ sites. Then trim it, color it,
+          and compress it with your GPU.
         </p>
         <div class="hero-actions">
           <a class="btn btn-primary" id="dlSetup" href="https://github.com/Molinays/MoliDownloader/releases/latest" target="_blank" rel="noopener">
-            Scarica per Windows
+            Download for Windows
           </a>
-          <a class="btn btn-quiet" href="#funzioni">Vedi le funzioni</a>
+          <a class="btn btn-quiet" href="#features">See features</a>
         </div>
-        <p class="meta" id="releaseMeta">Installer NSIS · aggiornamenti automatici inclusi</p>
+        <p class="meta" id="releaseMeta">NSIS installer · automatic updates included</p>
         <ul class="checklist">
-          <li>Nessuna estensione del browser</li>
-          <li>FFmpeg, ffprobe e yt-dlp già inclusi</li>
-          <li>Gratis, licenza MIT</li>
+          <li>No browser extension</li>
+          <li>FFmpeg, ffprobe, and yt-dlp included</li>
+          <li>Free, MIT license</li>
         </ul>
       </div>
 
       <figure class="shot hero-shot">
-        <img src="assets/download.png" alt="Schermata della sezione Download di MoliDowloader" width="1344" height="841" loading="eager">
-        <figcaption>Un link per riga. L'app trova il video da sola.</figcaption>
+        <img src="assets/download.png" alt="MoliDowloader Download screen" width="1344" height="841" loading="eager">
+        <figcaption>One link per line. The app finds the video for you.</figcaption>
       </figure>
     </section>
 
     <section class="strip">
       <div class="wrap strip-inner">
-        <span class="strip-label">Funziona con</span>
+        <span class="strip-label">Works with</span>
         <span class="site">YouTube</span>
         <span class="site">TikTok</span>
         <span class="site">Instagram</span>
@@ -75,153 +76,154 @@
         <span class="site">Vimeo</span>
         <span class="site">Twitch</span>
         <span class="site">SoundCloud</span>
-        <span class="site muted">+1000 siti</span>
+        <span class="site muted">+1000 sites</span>
       </div>
     </section>
 
-    <section class="section wrap" id="funzioni">
+    <section class="section wrap" id="features">
       <div class="section-head">
-        <p class="eyebrow">Funzioni</p>
-        <h2>Tre strumenti, una finestra</h2>
-        <p class="section-lead">Passa dal link al file finito senza aprire altri programmi.</p>
+        <p class="eyebrow">Features</p>
+        <h2>Three tools, one window</h2>
+        <p class="section-lead">Go from a link to the finished file without opening anything else.</p>
       </div>
 
       <div class="grid-3">
         <article class="card feature">
           <span class="feature-tag">01 · Download</span>
-          <h3>Trova il video, ovunque sia</h3>
-          <p>Oltre 1000 siti gestiti da yt-dlp. Se la pagina non è riconosciuta, il resolver nativo cerca il file video nell'HTML, nei JSON del player e nella rete: niente estensioni tipo FetchV.</p>
+          <h3>Find the video, wherever it is</h3>
+          <p>1000+ sites handled by yt-dlp. If the page is not recognized, the native resolver looks for the video file in the HTML, in player JSON, and on the network: no FetchV-style extensions needed.</p>
           <ul class="ticks">
-            <li>Video 4K / 1440p / 1080p e audio MP3, M4A, Opus, FLAC, WAV</li>
-            <li>TikTok pubblico anche senza login</li>
-            <li>Playlist, sottotitoli, cookie, proxy, SponsorBlock</li>
-            <li>Fino a 8 download in parallelo</li>
-            <li>Riprova automatica con i cookie del browser e ricerca del flusso</li>
+            <li>4K / 1440p / 1080p video and MP3, M4A, Opus, FLAC, WAV audio</li>
+            <li>Public TikTok even without logging in</li>
+            <li>Playlists, subtitles, cookies, proxy, SponsorBlock</li>
+            <li>Up to 8 parallel downloads</li>
+            <li>Automatic retry with browser cookies and stream discovery</li>
+            <li>Spotify playlists, albums, and tracks matched to audio</li>
           </ul>
         </article>
 
         <article class="card feature" id="editor">
           <span class="feature-tag">02 · Editor</span>
-          <h3>Rifiniture in pochi clic</h3>
-          <p>Taglia, colora, ruota e monta più clip in sequenza. L'anteprima è immediata; l'export usa gli stessi valori in FFmpeg.</p>
+          <h3>Quick finishing touches</h3>
+          <p>Trim, color, rotate, and join multiple clips in sequence. Preview is instant; export uses the same values in FFmpeg.</p>
           <ul class="ticks">
-            <li>Trim al fotogramma con cursori e campi numerici</li>
-            <li>Luminosità, contrasto, saturazione, gamma, temperatura e preset</li>
-            <li>Rotazione, flip, zoom, velocità e volume con fade</li>
-            <li>Istantanea PNG e anteprima del montaggio intero</li>
-            <li>Export MP4, MKV o solo audio, anche in 9:16</li>
+            <li>Frame-accurate trim with sliders and numeric fields</li>
+            <li>Brightness, contrast, saturation, gamma, temperature, and presets</li>
+            <li>Rotate, flip, zoom, speed, and volume with fades</li>
+            <li>PNG snapshot and full-timeline preview</li>
+            <li>Export MP4, MKV, or audio only, including 9:16</li>
           </ul>
         </article>
 
-        <article class="card feature" id="comprimi">
-          <span class="feature-tag">03 · Comprimi</span>
-          <h3>File più piccoli, stessa qualità</h3>
-          <p>Un compressore in stile HandBrake che prova davvero la GPU della tua macchina, invece di indovinare.</p>
+        <article class="card feature" id="compress">
+          <span class="feature-tag">03 · Compress</span>
+          <h3>Smaller files, same quality</h3>
+          <p>A HandBrake-style compressor that actually tests your machine's GPU instead of guessing.</p>
           <ul class="ticks">
-            <li>x264, x265, VP9, AV1 e hardware NVENC, Quick Sync, AMF, VideoToolbox</li>
-            <li>Test reali degli encoder e decodifica GPU</li>
-            <li>Stima dei MB finali in tempo reale e dimensione target</li>
-            <li>Merge delle tracce audio, taglio, crop automatico, loudnorm</li>
-            <li>Burn-in dei sottotitoli e faststart MP4</li>
+            <li>x264, x265, VP9, AV1, and hardware NVENC, Quick Sync, AMF, VideoToolbox</li>
+            <li>Real encoder tests and GPU decoding</li>
+            <li>Live final-size estimate and target size</li>
+            <li>Audio track merge, trim, auto crop, loudnorm</li>
+            <li>Subtitle burn-in and faststart MP4</li>
           </ul>
         </article>
       </div>
 
-      <div class="grid-3 small" aria-label="Altri dettagli">
+      <div class="grid-3 small" aria-label="More details">
         <div class="card mini">
-          <h4>Aggiornamenti automatici</h4>
-          <p>La versione installata confronta le release e scarica la nuova build da sola. Il portable si scarica a mano.</p>
+          <h4>Automatic updates</h4>
+          <p>The installed version checks releases and downloads the new build automatically. The portable version is updated by hand.</p>
         </div>
         <div class="card mini">
-          <h4>Elaborazione locale</h4>
-          <p>Download, montaggio e compressione restano sul tuo PC. Nessun account, nessun upload.</p>
+          <h4>Local processing</h4>
+          <p>Downloads, editing, and compression stay on your PC. No account, no uploads.</p>
         </div>
         <div class="card mini">
-          <h4>Informazioni di sistema</h4>
-          <p>GPU, VRAM, driver ed encoder disponibili, con impostazioni consigliate applicabili in un clic.</p>
+          <h4>System information</h4>
+          <p>GPU, VRAM, drivers, and available encoders, with recommended settings you can apply in one click.</p>
         </div>
       </div>
     </section>
 
     <section class="section section-shots wrap">
       <figure class="shot wide">
-        <img src="assets/editor.png" alt="Editor di MoliDowloader con anteprima video e pannello colore" width="1344" height="841" loading="lazy">
-        <figcaption>Editor rapido: taglio, colore, geometria e audio, con export FFmpeg.</figcaption>
+        <img src="assets/editor.png" alt="MoliDowloader editor with video preview and color panel" width="1344" height="841" loading="lazy">
+        <figcaption>Quick editor: trim, color, geometry, and audio, with FFmpeg export.</figcaption>
       </figure>
     </section>
 
     <section class="section wrap" id="download">
       <div class="section-head">
         <p class="eyebrow">Download</p>
-        <h2>Installa MoliDowloader</h2>
-        <p class="section-lead">Windows 10/11 a 64 bit. Non servono FFmpeg, ffprobe o yt-dlp: sono nel pacchetto.</p>
+        <h2>Install MoliDowloader</h2>
+        <p class="section-lead">Windows 10/11 64-bit. FFmpeg, ffprobe, and yt-dlp are already included.</p>
       </div>
 
       <div class="download-grid">
         <article class="card download-card">
           <div class="download-head">
             <h3>Installer</h3>
-            <span class="pill">Consigliato</span>
+            <span class="pill">Recommended</span>
           </div>
-          <p>Installa l'app, crea il collegamento nel menu Start e riceve gli aggiornamenti automatici.</p>
-          <a class="btn btn-primary btn-block" id="dlSetupCard" href="https://github.com/Molinays/MoliDownloader/releases/latest" target="_blank" rel="noopener">Scarica l'installer</a>
-          <p class="meta" id="setupMeta">MoliDowloader-Setup-&lt;versione&gt;.exe</p>
+          <p>Installs the app, creates a Start menu shortcut, and receives automatic updates.</p>
+          <a class="btn btn-primary btn-block" id="dlSetupCard" href="https://github.com/Molinays/MoliDownloader/releases/latest" target="_blank" rel="noopener">Download the installer</a>
+          <p class="meta" id="setupMeta">MoliDowloader-Setup-&lt;version&gt;.exe</p>
         </article>
 
         <article class="card download-card">
           <div class="download-head">
             <h3>Portable</h3>
-            <span class="pill quiet">Nessuna installazione</span>
+            <span class="pill quiet">No installation</span>
           </div>
-          <p>Un solo eseguibile da mettere dove preferisci. Non si aggiorna da solo: scarica la nuova versione quando esce.</p>
-          <a class="btn btn-quiet btn-block" id="dlPortable" href="https://github.com/Molinays/MoliDownloader/releases/latest" target="_blank" rel="noopener">Scarica il portable</a>
-          <p class="meta" id="portableMeta">MoliDowloader-&lt;versione&gt;.exe</p>
+          <p>A single executable you can put anywhere. It does not update itself: download the new version when it is released.</p>
+          <a class="btn btn-quiet btn-block" id="dlPortable" href="https://github.com/Molinays/MoliDownloader/releases/latest" target="_blank" rel="noopener">Download the portable</a>
+          <p class="meta" id="portableMeta">MoliDowloader-&lt;version&gt;.exe</p>
         </article>
       </div>
 
       <div class="notice">
-        <strong>SmartScreen.</strong> Gli installer non hanno un certificato commerciale: al primo avvio Windows può chiedere conferma.
-        Scegli <em>Ulteriori informazioni → Esegui comunque</em>. Le build arrivano solo da questa pagina o dalle release GitHub di
+        <strong>SmartScreen.</strong> The installers do not have a commercial certificate: Windows may ask for confirmation on first launch.
+        Choose <em>More info → Run anyway</em>. Builds come only from this page or the GitHub releases of
         <a href="https://github.com/Molinays/MoliDownloader" target="_blank" rel="noopener">Molinays/MoliDownloader</a>.
       </div>
       <div class="notice">
-        <strong>Film e TV.</strong> Quest'app permette di scaricare film e serie TV, rileva automaticamente il link del player utilizzato dal sito. <em>Attenzione →</em> Utilizza quest'app solo per contenuti di cui hai i diritti o che la piattaforma consente di scaricare: sei responsabile dell'uso.
+        <strong>Movies and TV.</strong> This app can download movies and TV series and automatically detects the player link used by the site. <em>Warning →</em> Only use this app for content you own the rights to or that the platform allows you to download: you are responsible for your use.
       </div>
     </section>
 
     <section class="section wrap" id="faq">
       <div class="section-head">
         <p class="eyebrow">FAQ</p>
-        <h2>Domande frequenti</h2>
+        <h2>Frequently asked questions</h2>
       </div>
       <div class="faq">
         <details>
-          <summary>Serve installare FFmpeg o yt-dlp?</summary>
-          <p>No. FFmpeg, ffprobe e yt-dlp sono inclusi e l'app può aggiornare yt-dlp da sola dalla scheda Download.</p>
+          <summary>Do I need to install FFmpeg or yt-dlp?</summary>
+          <p>No. FFmpeg, ffprobe, and yt-dlp are included, and the app can update yt-dlp itself from the Download tab.</p>
         </details>
         <details>
-          <summary>Posso scaricare un video TikTok senza login?</summary>
-          <p>Sì, per i video pubblici. Se la pagina non espone il file, l'app apre il player incorporato pubblico e intercetta l'mp4. Per contenuti privati o con restrizioni servono i cookie del browser, impostabili in <em>Accesso e rete</em>.</p>
+          <summary>Can I download a TikTok video without logging in?</summary>
+          <p>Yes, for public videos. If the page does not expose the file, the app opens the public embedded player and captures the mp4. Private or restricted content needs browser cookies, configurable under <em>Access and network</em>.</p>
         </details>
         <details>
-          <summary>Funziona con i siti che nascondono il player?</summary>
-          <p>Il resolver legge la pagina, segue gli iframe e cerca playlist HLS e file mp4 nei dati del player. Se il sito costruisce il flusso solo a runtime, una finestra Electron nascosta lo intercetta come farebbe un'estensione. Non decifra DRM né aggira abbonamenti.</p>
+          <summary>Does it work on sites that hide the player?</summary>
+          <p>The resolver reads the page, follows iframes, and looks for HLS playlists and mp4 files in the player data. If the site only builds the stream at runtime, a hidden Electron window captures it like an extension would. It does not decrypt DRM or bypass subscriptions.</p>
         </details>
         <details>
-          <summary>Come si aggiorna l'app?</summary>
-          <p>La versione installer controlla le release all'avvio e ogni 6 ore, scarica in background e installa alla chiusura. Nella scheda Info trovi lo stato e il pulsante <em>Riavvia e aggiorna</em>. Il portable va sostituito a mano.</p>
+          <summary>How does the app update?</summary>
+          <p>The installer version checks releases at startup and every 6 hours, downloads in the background, and installs on exit. The Info tab shows the status and the <em>Restart and update</em> button. The portable version must be replaced by hand.</p>
         </details>
         <details>
-          <summary>L'app invia i miei file da qualche parte?</summary>
-          <p>No. Download, montaggio e compressione girano in locale. Le uniche richieste di rete sono quelle ai siti che scarichi, al catalogo GPU/encoder e agli aggiornamenti.</p>
+          <summary>Does the app send my files anywhere?</summary>
+          <p>No. Downloads, editing, and compression run locally. The only network requests go to the sites you download from, the GPU/encoder catalog, and update checks.</p>
         </details>
         <details>
-          <summary>È gratis? Posso usarla per contenuti protetti?</summary>
-          <p>È gratuita e open source con licenza MIT. Usala solo per contenuti di cui hai i diritti o che la piattaforma consente di scaricare: sei responsabile dell'uso.</p>
+          <summary>Is it free? Can I use it for protected content?</summary>
+          <p>It is free and open source under the MIT license. Only use it for content you own the rights to or that the platform allows you to download: you are responsible for your use.</p>
         </details>
         <details>
-          <summary>Questa app è stata creata con l'intelligenza artificiale?</summary>
-          <p>Si, questa app è stata creata con l'aiuto di DeepSeek, a parere mio, la migliore ai gratuita per queste cose. (Mi ha risparmiato almeno 1 mese di lavoro)</p>
+          <summary>Was this app created with AI?</summary>
+          <p>Yes, this app was created with help from DeepSeek; in my opinion, the best free AI for this kind of work. (It saved me at least a month of work.)</p>
         </details>
       </div>
     </section>
@@ -231,11 +233,11 @@
     <div class="wrap footer-inner">
       <div>
         <span class="brand-name">MoliDowloader</span>
-        <p class="meta">Copyright © 2026 Molinays · Licenza MIT</p>
+        <p class="meta">Copyright © 2026 Molinays · MIT License</p>
       </div>
-      <nav class="footer-links" aria-label="Collegamenti">
+      <nav class="footer-links" aria-label="Links">
         <a href="https://github.com/Molinays/MoliDownloader" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://github.com/Molinays/MoliDownloader/releases" target="_blank" rel="noopener">Release</a>
+        <a href="https://github.com/Molinays/MoliDownloader/releases" target="_blank" rel="noopener">Releases</a>
         <a href="#download">Download</a>
         <a href="#faq">FAQ</a>
       </nav>
