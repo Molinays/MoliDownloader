@@ -139,7 +139,7 @@ header {
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  color: #000000;
+  color: #ffffff;
   font-weight: bold;
 }
 
@@ -625,10 +625,11 @@ input[type=number]::-webkit-outer-spin-button {
   max-height: 80vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 20px 60px rgba(0,0,0,0.8), 0 0 40px rgba(255,255,255,0.05);
   backdrop-filter: blur(20px);
 }
-.modal-head { padding: 16px 20px; border-bottom: 1px solid var(--card-border); display: flex; align-items: center; justify-content: space-between; }
+.modal-head { flex-shrink: 0; padding: 16px 20px; border-bottom: 1px solid var(--card-border); display: flex; align-items: center; justify-content: space-between; }
 .modal-head h3 { font-size: 14px; font-weight: 600; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.05em; }
 .btn-close { background: none; border: none; color: var(--text3); font-size: 20px; cursor: pointer; line-height: 1; padding: 2px 6px; transition: color 0.2s; }
 .btn-close:hover { color: var(--ink); }
@@ -1277,9 +1278,38 @@ body.dragging .preview-box {
   .editor-grid { grid-template-columns: minmax(0, 1fr) 350px; }
 }
 
+/* Sotto questa larghezza il badge non serve e lascerebbe il pulsante
+   della modalita` sopra le tab. */
+@media (max-width: 1080px) {
+  header .badge { display: none; }
+}
+
 @media (max-width: 980px) {
-  main { grid-template-columns: 1fr; height: auto; overflow: auto; }
-  .right { border-left: none; border-top: 1px solid var(--card-border); }
+  /* Qui la coda e` sotto, quindi il pulsante resta nel flusso. */
+  header .mode-toggle {
+    position: static;
+    right: auto;
+    top: auto;
+    transform: none;
+    margin-left: auto;
+  }
+  header .status-dot { margin-left: 8px; }
+
+  /* Una sola colonna che scorre: nessun pannello resta schiacciato. */
+  main {
+    display: block;
+    height: auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .left { padding: 20px 16px 28px; overflow: visible; }
+  .right {
+    padding: 20px 16px;
+    overflow: visible;
+    border-left: none;
+    border-top: 1px solid var(--card-border);
+  }
+  body #ezPanel { overflow: visible; }
   .settings-grid { grid-template-columns: 1fr; }
   .toggles-grid { grid-template-columns: 1fr; }
   .editor-view { height: auto; min-height: 0; }
@@ -1287,18 +1317,65 @@ body.dragging .preview-box {
   .inspector-col { border-left: 0; border-top: 1px solid var(--card-border); max-height: none; }
   .editor-topbar { flex-wrap: wrap; }
   .project-name { order: 3; flex-basis: 100%; }
+  /* Su una riga sola il contatore e Export restano a destra. */
+  .editor-meta { margin-left: auto; }
+}
+
+@media (max-width: 760px) {
+  /* Header compatto su due righe quando le tab non ci stanno piu` accanto. */
+  header {
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    row-gap: 8px;
+  }
+  .view-tabs {
+    order: 3;
+    flex: 0 0 100%;
+    margin-left: 0;
+    justify-content: center;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+    backdrop-filter: none;
+    max-width: 100%;
+    overflow-x: auto;
+  }
 }
 
 @media (max-width: 720px) {
   header { flex-wrap: wrap; }
-  .view-tabs { margin-left: auto; }
+  .view-tabs { margin-left: 0; }
   .badge { display: none; }
-  .url-row { flex-direction: column; }
-  .url-row .btn-dl { width: 100%; }
-  .editor-actions { width: 100%; }
-  .editor-actions .btn-icon { flex: 1; }
+  /* La riga URL resta affiancata: impilare il pulsante ruba 54px di altezza. */
+  .url-row .btn-dl { flex: 0 0 auto; padding-left: 16px; padding-right: 16px; }
   .preview-box { max-height: none; }
   .transport #edSelection { max-width: 100%; }
+
+  /* Toolbar dell'editor: azioni e Export sulla prima riga, progetto e
+     contatore sulla seconda. La griglia evita righe spaiate a ogni larghezza. */
+  .editor-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .editor-actions { grid-column: 1; grid-row: 1; flex: 0 1 auto; flex-wrap: wrap; }
+  .editor-actions .btn-icon { padding: 7px 10px; }
+  .editor-actions .btn-icon.icon-only { width: 30px; padding-left: 0; padding-right: 0; }
+  .editor-topbar .btn-dl { grid-column: 2; grid-row: 1; padding: 8px 14px; justify-self: end; }
+  .project-name { grid-column: 1; grid-row: 2; flex: 1 1 auto; min-width: 0; }
+  .project-name input { max-width: none; width: 100%; flex: 1; min-width: 0; }
+  .editor-meta { grid-column: 2; grid-row: 2; justify-self: end; }
+}
+
+@media (max-width: 560px) {
+  header { padding: 10px 12px; gap: 8px; }
+  .logo-text { font-size: 14px; }
+  header .mode-toggle { padding: 6px 10px; font-size: 9px; }
+  /* Solo qui l'URL va sopra il pulsante: non c'e` spazio per entrambi. */
+  .url-row { flex-direction: column; }
+  .url-row .btn-dl { width: 100%; }
 }
 /* =========================================
    COMPRIMI
@@ -1619,7 +1696,14 @@ body.dragging .source-card {
 }
 
 @media (max-width: 1180px) {
-  .preset-grid { grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); }
+  .preset-grid { grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .preset-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .compress-left { padding: 18px 14px 20px; }
+  .source-card { padding: 14px; gap: 10px; flex-wrap: wrap; }
+  .source-card .btn-dl { margin-left: auto; }
 }
 
 @media (max-width: 980px) {
@@ -2333,7 +2417,11 @@ input[type=number]:focus {
    EASY MODE
    ========================================= */
 .mode-toggle {
-  margin-left: auto;
+  /* Allineato al bordo sinistro della coda, in entrambe le modalita`. */
+  position: absolute;
+  right: 344px;
+  top: 50%;
+  transform: translateY(-50%);
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
   color: var(--text2);
@@ -2480,15 +2568,69 @@ body.ez-mode .view-tabs { display: none; }
 .ez-download:disabled { opacity: .6; cursor: wait; }
 .ez-tip { font-size: 11px; color: var(--text3); line-height: 1.5; }
 
+/* Finestre basse: anche l'Easy mode deve restare tutto raggiungibile. */
+@media (max-height: 760px) {
+  #ezPanel { padding: 12px 24px 14px; }
+  .ez-panel .ez-head { margin-bottom: 8px; }
+  .ez-head h1 { font-size: 22px; }
+  .ez-card { padding: 12px 16px; gap: 8px; }
+  .ez-input { height: 56px; min-height: 56px; }
+  .ez-choice { padding: 8px 10px; }
+  .ez-download { padding: 10px 20px; }
+  .ez-tip { font-size: 10px; }
+}
+
+@media (max-height: 650px) {
+  .ez-lead { display: none; }
+}
+
+/* Altezze minime (la finestra arriva a 480px): l'Easy mode si compatta
+   quanto basta per mostrare anche il pulsante Download senza scroll. */
+@media (max-height: 560px) {
+  header { padding: 8px 16px; row-gap: 6px; }
+  .logo { width: 24px; height: 24px; }
+  .logo-text { font-size: 15px; }
+  .view-tab { padding: 6px 12px; font-size: 10px; }
+  header .mode-toggle { padding: 6px 11px; font-size: 9px; }
+
+  #ezPanel { padding: 10px 16px 12px; }
+  .ez-panel .ez-head { margin-bottom: 6px; }
+  .ez-kicker { display: none; }
+  .ez-head h1 { font-size: 18px; }
+  .ez-card { padding: 10px 12px; gap: 6px; }
+  .ez-step { font-size: 12px; gap: 6px; }
+  .ez-step-num { width: 17px; height: 17px; font-size: 9.5px; }
+  .ez-input { height: 44px; min-height: 44px; padding: 7px 10px; font-size: 11.5px; }
+  .ez-help { display: none; }
+  .ez-choice { padding: 6px 9px; }
+  .ez-choice strong { font-size: 12px; }
+  .ez-choice span { font-size: 10px; }
+  .ez-row { padding: 4px 10px; }
+  .ez-download { padding: 8px 16px; font-size: 14px; }
+  .ez-tip { font-size: 9.5px; line-height: 1.4; }
+}
+
 body.ez-mode .right { background: rgba(5, 5, 5, .55); }
 body.ez-mode .job-url { font-size: 13px; }
 body.ez-mode .empty-state { padding: 40px 12px; }
 
 @media (max-width: 900px) {
   body.ez-mode #viewDownload { grid-template-columns: 1fr; }
-  body.ez-mode .right { display: none; }
-  #ezPanel { padding: 24px 16px; }
+  #ezPanel { padding: clamp(14px, 2.5vh, 26px) 16px clamp(18px, 3vh, 32px); }
+  .ez-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
   .ez-choices { grid-template-columns: 1fr; }
+}
+
+/* Finestre davvero minuscole (560x400): si tiene solo l'essenziale. */
+@media (max-height: 440px) {
+  #ezPanel { padding: 8px 14px 10px; }
+  .ez-choice span { display: none; }
+  .ez-choice { padding: 5px 9px; }
+  .ez-tip { display: none; }
+  .ez-download { padding: 7px 14px; }
 }
 
 /* =========================================
@@ -2628,6 +2770,8 @@ body.ez-mode .empty-state { padding: 40px 12px; }
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
 }
 .error-message { font-size: 13px; color: var(--text2); line-height: 1.6; }
 .error-hint {
@@ -2670,6 +2814,19 @@ body.ez-mode .empty-state { padding: 40px 12px; }
   padding: 14px 20px 18px;
   border-top: 1px solid var(--card-border);
   margin-top: 12px;
+  flex-shrink: 0;
+}
+
+@media (max-height: 560px) {
+  .modal-overlay { padding: 12px; }
+  .modal { max-height: 92vh; }
+  .error-head { padding: 12px 14px 8px; gap: 10px; }
+  .error-icon { width: 24px; height: 24px; font-size: 12px; }
+  .error-head h3 { font-size: 14px; }
+  .error-body { padding: 0 14px 4px; gap: 8px; }
+  .error-message, .error-hint { font-size: 12px; line-height: 1.5; }
+  .error-actions { padding: 10px 14px 12px; margin-top: 8px; }
+  .error-actions .btn-dl { padding: 7px 12px; font-size: 12px; }
 }
 .error-actions .btn-dl {
   width: auto;
@@ -2728,4 +2885,11 @@ body.ez-mode .right {
   background: rgba(9, 11, 14, .72);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+
+/* Schermi molto larghi: il contenuto non si allunga a dismisura, resta
+   centrato con la stessa misura che ha su un desktop normale. */
+@media (min-width: 1500px) {
+  .left { padding-left: 48px; padding-right: 48px; }
+  .left > * { max-width: 1020px; margin-left: auto; margin-right: auto; }
 }

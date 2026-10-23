@@ -371,6 +371,34 @@ async function run() {
       'template di fallback non rispettato',
     );
     assert.ok(withoutTitle.includes(`home:${outDir}`), 'cartella di output mancante dal fallback');
+    const playlistArgs = downloader.buildArgs(
+      'https://www.youtube.com/playlist?list=PL123',
+      { output_dir: outDir, output_template: '%(title)s.%(ext)s', playlist: true },
+      'yt-dlp',
+      '',
+      process.execPath,
+      { playlistFolder: 'auto' },
+    );
+    assert.strictEqual(
+      playlistArgs[playlistArgs.indexOf('-o') + 1],
+      '%(playlist_title)s/%(title)s.%(ext)s',
+      'la playlist non finisce nella sua cartella',
+    );
+    const albumArgs = downloader.buildArgs(
+      'https://www.youtube.com/watch?v=abc',
+      { output_dir: outDir, output_template: '%(title)s.%(ext)s', playlist: true },
+      'yt-dlp',
+      '',
+      process.execPath,
+      { title: 'Artist - Song', playlistFolder: 'Best Of' },
+    );
+    assert.strictEqual(
+      albumArgs[albumArgs.indexOf('-o') + 1],
+      'Best Of/Artist - Song.%(ext)s',
+      'la playlist Spotify non finisce nella sua cartella',
+    );
+    console.log('ok - playlist in una cartella col suo nome');
+    passed += 1;
     assert.strictEqual(
       downloader.titleFromUrl('https://animesaturn.ro/one-piece-ita-episode-940/'),
       'One Piece ITA Episode 940',

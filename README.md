@@ -1,4 +1,4 @@
-# MoliDowloader 3.4.2
+# MoliDowloader 3.4.3
 
 App desktop **Electron** che unisce un downloader universale, un piccolo editor video/audio e un compressore in stile HandBrake, tutti basati su **FFmpeg**.
 

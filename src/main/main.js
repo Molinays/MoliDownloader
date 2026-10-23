@@ -10,6 +10,7 @@ const {
   dialog,
   ipcMain,
   Menu,
+  screen,
   shell,
 } = require('electron');
 
@@ -63,11 +64,16 @@ function broadcast(channel, payload) {
 
 function createWindow() {
   const iconPath = path.join(__dirname, '..', '..', 'build', 'icon.png');
+  // La finestra non deve mai essere più grande dello schermo: su un monitor
+  // 1366x768 la vecchia altezza fissa (880) finiva sotto la barra delle app.
+  const area = screen.getPrimaryDisplay().workAreaSize;
+  const width = Math.min(1360, Math.max(480, area.width - 32));
+  const height = Math.min(880, Math.max(400, area.height - 32));
   mainWindow = new BrowserWindow({
-    width: 1360,
-    height: 880,
-    minWidth: 1020,
-    minHeight: 660,
+    width,
+    height,
+    minWidth: Math.min(640, width),
+    minHeight: Math.min(480, height),
     backgroundColor: '#080808',
     autoHideMenuBar: true,
     show: false,

@@ -34,7 +34,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #000;
+      color: #fff;
       font-size: 20px;
       font-weight: 700;
     }
@@ -1242,6 +1242,27 @@
       <div class="error-actions">
         <button id="btnConfirmKeep" class="btn-dl" type="button">Keep downloading</button>
         <button id="btnConfirmCancel" class="btn-sm btn-cancel" type="button">Cancel download</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="musicModal" class="modal-overlay" aria-hidden="true">
+    <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="musicTitle">
+      <div class="error-head">
+        <span class="error-icon" aria-hidden="true">♪</span>
+        <div class="error-head-text">
+          <span class="error-code">MUSIC PLAYLIST</span>
+          <h3 id="musicTitle">Music playlist detected</h3>
+        </div>
+        <button id="btnCloseMusic" class="btn-close" aria-label="Close">×</button>
+      </div>
+      <div class="error-body">
+        <p id="musicMessage" class="error-message"></p>
+        <p id="musicHint" class="error-hint"></p>
+      </div>
+      <div class="error-actions">
+        <button id="btnMusicAudio" class="btn-dl" type="button">Use Audio (MP3)</button>
+        <button id="btnMusicVideo" class="btn-sm" type="button">Download as video</button>
       </div>
     </div>
   </div>

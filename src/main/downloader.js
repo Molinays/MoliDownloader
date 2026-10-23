@@ -273,7 +273,20 @@ function buildArgs(url, settings, ytdlpPath, ffmpegDir, jsRuntime, extra = {}) {
   const title = usableTitle(extra.title);
   // Il titolo della pagina è il nome del file: il flusso HLS da solo
   // porterebbe il nome dell'id del CDN (es. 74657.mp4).
-  const template = title ? `${title.replace(/%/g, '%%')}.%(ext)s` : fallbackTemplate;
+  const baseTemplate = title ? `${title.replace(/%/g, '%%')}.%(ext)s` : fallbackTemplate;
+  // Le playlist finiscono in una cartella col loro nome. Per i link YouTube
+  // (e simili) il nome lo decide yt-dlp con %(playlist_title)s; per Spotify,
+  // che espande i brani in job separati, il nome arriva già dall'album.
+  const folderTemplate =
+    extra.playlistFolder === 'auto'
+      ? '%(playlist_title)s'
+      : extra.playlistFolder
+        ? safeFileName(extra.playlistFolder).replace(/%/g, '%%')
+        : '';
+  const template =
+    folderTemplate && !/%\(playlist_(?:title|id|index)\)s/.test(baseTemplate)
+      ? `${folderTemplate}/${baseTemplate}`
+      : baseTemplate;
   fs.mkdirSync(outputDir, { recursive: true });
 
   const fmt = settings.format === 'audio' ? 'audio' : 'video';
@@ -717,6 +730,7 @@ async function runJob(job) {
       const args = buildArgs(attemptUrl, settings, ytdlp.path, tools.binDir, process.execPath, {
         ...attemptExtra,
         tempDir,
+        playlistFolder: job.playlistFolder || '',
       });
       addLog(
         job,
@@ -874,6 +888,7 @@ async function start(payload) {
       playlist: data.playlist || '',
       playlistTotal: data.playlistTotal || 0,
       playlistKind: data.playlistKind || '',
+      playlistFolder: data.playlistFolder || '',
       linkKind: data.linkKind || '',
       source: data.source || '',
       lockedTitle: Boolean(data.lockedTitle),
@@ -913,6 +928,7 @@ async function start(payload) {
           playlist: single ? '' : expanded.title,
           playlistKind: single ? '' : expanded.type,
           playlistTotal: single ? 1 : expanded.tracks.length,
+          playlistFolder: single ? '' : expanded.title,
           linkKind: expanded.type,
           source: 'spotify',
           settings: { ...settings, format: 'audio' },
@@ -924,13 +940,19 @@ async function start(payload) {
     // Un link che punta a una playlist va scaricato come playlist: con
     // --no-playlist yt-dlp non troverebbe nulla da fare.
     const playlistLink = info.kind === 'playlist';
+    // Con "Whole playlist" attivo anche un link video con ?list= diventa una
+    // playlist: in quel caso i file vanno raggruppati nella stessa cartella.
+    const wantsPlaylist =
+      playlistLink ||
+      (Boolean(settings.playlist) && (info.hasPlaylist || info.kind === 'channel'));
     const serviceLabel = info.serviceLabel || info.host || 'Site';
     createJob({
       url,
-      settings: playlistLink ? { ...settings, playlist: true } : settings,
-      note: playlistLink ? `Playlist detected · ${serviceLabel}` : '',
-      playlist: playlistLink ? info.playlistLabel || `${serviceLabel} playlist` : '',
-      playlistKind: playlistLink ? 'link' : '',
+      settings: wantsPlaylist ? { ...settings, playlist: true } : settings,
+      note: wantsPlaylist ? `Playlist detected · ${serviceLabel}` : '',
+      playlist: wantsPlaylist ? info.playlistLabel || `${serviceLabel} playlist` : '',
+      playlistKind: wantsPlaylist ? 'link' : '',
+      playlistFolder: wantsPlaylist ? 'auto' : '',
       linkKind: info.kind,
     });
   }

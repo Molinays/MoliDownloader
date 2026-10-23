@@ -344,6 +344,60 @@ function closeConfirm(result) {
   if (resolve) resolve(Boolean(result));
 }
 
+/* Avviso per le playlist musicali scaricate come video. */
+let musicResolve = null;
+
+function musicPlaylistInfo(urls, wholePlaylist) {
+  const found = [];
+  for (const raw of urls) {
+    const info = linkInfoOf(raw);
+    if (!info) continue;
+    if (info.service === 'spotify' && info.isPlaylist) {
+      found.push(info);
+    } else if (
+      (info.service === 'youtube-music' || info.service === 'soundcloud') &&
+      (info.isPlaylist || (info.hasPlaylist && wholePlaylist))
+    ) {
+      found.push(info);
+    }
+  }
+  return found;
+}
+
+function openMusicWarning(playlists) {
+  const modal = $('musicModal');
+  if (!modal) return Promise.resolve('video');
+  const spotifyOnly = playlists.every((info) => info.service === 'spotify');
+  const hasSpotify = playlists.some((info) => info.service === 'spotify');
+  $('musicTitle').textContent = spotifyOnly ? 'Spotify playlists are audio' : 'Music playlist detected';
+  $('musicMessage').textContent = spotifyOnly
+    ? 'Spotify tracks are always saved as audio (MP3), even when Video is selected. Use the Audio settings to choose bitrate and format.'
+    : `You selected Video (MP4). For music, audio (MP3) is recommended: smaller files and the same sound. Keep Video (MP4) if you want the picture.${
+        hasSpotify ? ' Spotify tracks are saved as audio anyway.' : ''
+      }`;
+  $('musicHint').textContent = 'The playlist will be saved in a folder named after it.';
+  $('btnMusicVideo').hidden = spotifyOnly;
+  return new Promise((resolve) => {
+    if (musicResolve) musicResolve('cancel');
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    musicResolve = resolve;
+    setTimeout(() => {
+      if (musicResolve === resolve) $('btnMusicAudio').focus();
+    }, 30);
+  });
+}
+
+function closeMusicWarning(value) {
+  const modal = $('musicModal');
+  if (!modal) return;
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+  const resolve = musicResolve;
+  musicResolve = null;
+  if (resolve) resolve(value || 'cancel');
+}
+
 async function signInFromError() {
   const info = state.errorInfo;
   if (!info || !info.loginUrl) return;
@@ -556,6 +610,12 @@ function bindEvents() {
   $('confirmModal').addEventListener('click', (event) => {
     if (event.target === $('confirmModal')) closeConfirm(false);
   });
+  $('btnCloseMusic').addEventListener('click', () => closeMusicWarning('cancel'));
+  $('btnMusicAudio').addEventListener('click', () => closeMusicWarning('audio'));
+  $('btnMusicVideo').addEventListener('click', () => closeMusicWarning('video'));
+  $('musicModal').addEventListener('click', (event) => {
+    if (event.target === $('musicModal')) closeMusicWarning('cancel');
+  });
 
   $('urlInput').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -670,6 +730,7 @@ function bindEvents() {
       closeError();
       closeLog();
       closeConfirm(false);
+      closeMusicWarning('cancel');
     }
     if (state.view !== 'editor') return;
     const tag = (document.activeElement && document.activeElement.tagName) || '';
@@ -1127,13 +1188,26 @@ async function startDownload(source = 'advanced') {
     setTab(state.currentTab);
   }
 
+  let settings = collectSettings();
+  if (settings.format === 'video') {
+    const music = musicPlaylistInfo(urls, settings.playlist);
+    if (music.length) {
+      const choice = await openMusicWarning(music);
+      if (choice === 'cancel') return;
+      if (choice === 'audio') {
+        setTab('audio');
+        settings = collectSettings();
+      }
+    }
+  }
+
   const button = easy ? $('ezDownloadBtn') : $('dlBtn');
   const originalLabel = easy ? 'Download' : 'Download';
   button.disabled = true;
   button.textContent = 'Starting...';
 
   try {
-    const jobs = await api.startDownloads({ urls, settings: collectSettings() });
+    const jobs = await api.startDownloads({ urls, settings });
     setLinkValue('');
     toast(`${jobs.length} ${jobs.length === 1 ? 'download' : 'downloads'} queued`);
     await refreshJobs();
