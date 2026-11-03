@@ -82,6 +82,8 @@ MoliDowloader è distribuito con licenza **MIT**.
 <div align="center">
   
 **Copyright © 2026 Molinays. Tutti i diritti riservati.**
+
+- ovviamente autoassegnata perché io posso
   
 *Le dipendenze di terze parti (yt-dlp, FFmpeg, Electron) mantengono le rispettive licenze.*
 
